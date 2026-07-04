@@ -1,0 +1,26 @@
+# Node modules
+node_modules/
+**/node_modules/
+
+# Environment files
+.env
+backend/.env
+frontend/.env
+
+# Build folders
+dist/
+build/
+
+# Logs
+*.log
+
+# Uploads
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

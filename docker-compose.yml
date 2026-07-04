@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  # MongoDB Database Service
+  mongo:
+    image: mongo:6.0
+    container_name: filemanager-db
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - filemanager-net
+
+  # Express Node.js API Service
+  backend:
+    build: ./backend
+    container_name: filemanager-api
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - MONGODB_URI=mongodb://mongo:27017/file-manager
+      - JWT_SECRET=vaultjwtsecretkeyrunninginproductioncontainer
+      - ENCRYPTION_SECRET=8f515e0a0a56f6c99276bcbbbfcd5123d4567890abcdef0123456789abcdef01
+      - UPLOAD_DIR=/app/uploads
+      - NODE_ENV=production
+    volumes:
+      - encrypted_uploads:/app/uploads
+    depends_on:
+      - mongo
+    networks:
+      - filemanager-net
+
+  # Vite Nginx Static Frontend Service
+  frontend:
+    build: ./frontend
+    container_name: filemanager-client
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - filemanager-net
+
+volumes:
+  mongo_data:
+  encrypted_uploads:
+
+networks:
+  filemanager-net:
+    driver: bridge
