@@ -1,0 +1,26 @@
+:root {
+
+    --primary: #7C3AED;
+    --primary-light: #9F67FF;
+
+    --success: #10B981;
+    --warning: #F59E0B;
+    --danger: #EF4444;
+
+    --background: #0B1120;
+    --background-light: #111827;
+
+    --glass: rgba(255, 255, 255, .06);
+    --glass-border: rgba(255, 255, 255, .08);
+
+    --text: #FFFFFF;
+    --text-secondary: #94A3B8;
+
+    --radius: 20px;
+
+    --shadow:
+        0 8px 30px rgba(0, 0, 0, .25);
+
+    --transition: .25s ease;
+
+}

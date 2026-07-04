@@ -1,0 +1,61 @@
+body {
+
+    margin: 0;
+
+    font-family:
+        Inter,
+        Segoe UI,
+        sans-serif;
+
+    background:
+
+        linear-gradient(135deg,
+            #050816,
+            #0B1120,
+            #111827);
+
+    color: white;
+
+    overflow: hidden;
+
+}
+
+* {
+
+    box-sizing: border-box;
+
+}
+
+button {
+
+    cursor: pointer;
+
+    font-family: inherit;
+
+}
+
+input {
+
+    font-family: inherit;
+
+}
+
+.glass {
+
+    background: var(--glass);
+
+    backdrop-filter: blur(18px);
+
+    border:
+
+        1px solid var(--glass-border);
+
+    box-shadow:
+
+        var(--shadow);
+
+    border-radius:
+
+        var(--radius);
+
+}
