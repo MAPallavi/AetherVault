@@ -79,9 +79,12 @@ export const api = {
   },
 
   // Custom XMLHttpRequest to monitor upload progress
-  uploadFiles: (files, parentId = null, onProgress) => {
+  uploadFiles: (files, parentId = null, onProgress, xhrRef = null) => {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
+      if (xhrRef) {
+        xhrRef.current = xhr;
+      }
       const formData = new FormData();
 
       for (let i = 0; i < files.length; i++) {
@@ -103,7 +106,7 @@ export const api = {
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable && onProgress) {
           const percent = Math.round((e.loaded / e.total) * 100);
-          onProgress(percent);
+          onProgress(percent, e.loaded, e.total);
         }
       });
 

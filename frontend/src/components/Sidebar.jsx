@@ -1,3 +1,4 @@
+import "../styles/sidebar.css";
 import React, { useEffect, useState } from 'react';
 import { api } from '../utils/api';
 import { LayoutDashboard, FolderClosed, Trash2, ScrollText, LogOut, Shield, HardDrive } from 'lucide-react';
@@ -41,7 +42,7 @@ export default function Sidebar({ currentTab, setCurrentTab, username, onLogout,
   ];
 
   return (
-    <div className="glass-panel" style={styles.sidebar}>
+    <div className="glass-panel sidebar">
       <div style={styles.branding}>
         <Shield size={24} color="#9d4edd" />
         <span style={styles.logoText}>AetherVault</span>

@@ -1,14 +1,17 @@
-import React, { useEffect, useState } from 'react';
-import { api } from '../utils/api';
-import { Loader2, ScrollText, RefreshCw, Search } from 'lucide-react';
+import React, { useEffect, useState } from "react";
+import { api } from "../utils/api";
+import { Loader2, ScrollText, RefreshCw, Search } from "lucide-react";
+import { LogsSkeleton } from "./Skeleton";
+import EmptyState from "./EmptyState";
+import { toast } from "react-hot-toast";
 
 export default function ActivityLogs() {
   const [logs, setLogs] = useState([]);
   const [filteredLogs, setFilteredLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [actionFilter, setActionFilter] = useState('ALL');
-  const [error, setError] = useState('');
+  const [search, setSearch] = useState("");
+  const [actionFilter, setActionFilter] = useState("ALL");
+  const [error, setError] = useState("");
 
   useEffect(() => {
     fetchLogs();
@@ -20,12 +23,13 @@ export default function ActivityLogs() {
 
   const fetchLogs = async () => {
     setLoading(true);
-    setError('');
+    setError("");
     try {
       const data = await api.getLogs();
       setLogs(data);
     } catch (err) {
-      setError('Failed to fetch activity logs.');
+      setError("Failed to fetch activity logs.");
+      toast.error("Failed to load activity logs");
     } finally {
       setLoading(false);
     }
@@ -37,15 +41,16 @@ export default function ActivityLogs() {
     // Search query match
     if (search.trim()) {
       const q = search.toLowerCase();
-      result = result.filter(log => 
-        log.details.toLowerCase().includes(q) || 
-        log.action.toLowerCase().includes(q)
+      result = result.filter(
+        (log) =>
+          log.details.toLowerCase().includes(q) ||
+          log.action.toLowerCase().includes(q)
       );
     }
 
     // Action category match
-    if (actionFilter !== 'ALL') {
-      result = result.filter(log => log.action === actionFilter);
+    if (actionFilter !== "ALL") {
+      result = result.filter((log) => log.action === actionFilter);
     }
 
     setFilteredLogs(result);
@@ -53,27 +58,42 @@ export default function ActivityLogs() {
 
   const formatDateTime = (dateStr) => {
     const d = new Date(dateStr);
-    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return (
+      d.toLocaleDateString() +
+      " " +
+      d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    );
   };
 
   if (loading) {
     return (
-      <div style={styles.loadingContainer}>
-        <Loader2 className="spinner" size={48} color="#9d4edd" />
+      <div style={styles.tablePanel} className="glass-panel">
+        <LogsSkeleton />
       </div>
     );
   }
 
-  const actions = ['ALL', 'LOGIN', 'UPLOAD', 'DOWNLOAD', 'PREVIEW', 'DELETE', 'RESTORE', 'RENAME', 'CREATE_FOLDER', 'PURGE'];
+  const actions = [
+    "ALL",
+    "LOGIN",
+    "UPLOAD",
+    "DOWNLOAD",
+    "PREVIEW",
+    "DELETE",
+    "RESTORE",
+    "RENAME",
+    "CREATE_FOLDER",
+    "PURGE",
+  ];
 
   return (
-    <div className="main-content animate-fade-in">
+    <div className="main-content animate-fade-in" style={{ width: "100%" }}>
       <div style={styles.header}>
         <div>
           <h1 style={styles.pageTitle}>Activity Audit Logs</h1>
           <p style={styles.pageSubtitle}>Review file management access history and operations</p>
         </div>
-        <button onClick={fetchLogs} className="btn btn-secondary btn-icon" title="Refresh logs">
+        <button onClick={fetchLogs} className="btn-gray btn-icon" title="Refresh logs" style={{ minWidth: 0, padding: "8px" }}>
           <RefreshCw size={18} />
         </button>
       </div>
@@ -86,7 +106,7 @@ export default function ActivityLogs() {
           <input
             type="text"
             className="input-field"
-            style={{ paddingLeft: '40px' }}
+            style={{ paddingLeft: "40px" }}
             placeholder="Search logs details..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -100,9 +120,9 @@ export default function ActivityLogs() {
             onChange={(e) => setActionFilter(e.target.value)}
             style={styles.selectDropdown}
           >
-            {actions.map(act => (
-              <option key={act} value={act} style={{ background: '#1a1d24' }}>
-                {act === 'ALL' ? 'Filter by Action' : act}
+            {actions.map((act) => (
+              <option key={act} value={act} style={{ background: "#1a1d24" }}>
+                {act === "ALL" ? "Filter by Action" : act}
               </option>
             ))}
           </select>
@@ -111,44 +131,46 @@ export default function ActivityLogs() {
 
       <div className="glass-panel" style={styles.tablePanel}>
         <div style={styles.tableWrapper}>
-          <table style={styles.table}>
-            <thead>
-              <tr style={styles.thRow}>
-                <th style={{ ...styles.th, width: '150px' }}>Action</th>
-                <th style={styles.th}>Details</th>
-                <th style={{ ...styles.th, width: '130px' }}>IP Address</th>
-                <th style={{ ...styles.th, width: '180px' }}>Timestamp</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredLogs.length === 0 ? (
-                <tr>
-                  <td colSpan="4" style={styles.emptyCell}>
-                    No logs found matching your filters.
-                  </td>
+          {filteredLogs.length === 0 ? (
+            <EmptyState
+              icon={ScrollText}
+              title="No activity logs found"
+              description={
+                search || actionFilter !== "ALL"
+                  ? "Try refining your keyword search terms or resetting the filter dropdown values."
+                  : "Activity logs are empty."
+              }
+            />
+          ) : (
+            <table style={styles.table}>
+              <thead>
+                <tr style={styles.thRow}>
+                  <th style={{ ...styles.th, width: "150px" }}>Action</th>
+                  <th style={styles.th}>Details</th>
+                  <th style={{ ...styles.th, width: "130px" }}>IP Address</th>
+                  <th style={{ ...styles.th, width: "180px" }}>Timestamp</th>
                 </tr>
-              ) : (
-                filteredLogs.map((log) => (
+              </thead>
+              <tbody>
+                {filteredLogs.map((log) => (
                   <tr key={log._id} style={styles.tr}>
                     <td style={styles.td}>
-                      <span style={styles.actionTag(log.action)}>
-                        {log.action}
-                      </span>
+                      <span style={styles.actionTag(log.action)}>{log.action}</span>
                     </td>
-                    <td style={{ ...styles.td, color: '#fff', fontWeight: '500' }}>
+                    <td style={{ ...styles.td, color: "#fff", fontWeight: "500" }}>
                       {log.details}
                     </td>
-                    <td style={{ ...styles.td, color: 'var(--text-muted)' }}>
-                      {log.ipAddress || 'unknown'}
+                    <td style={{ ...styles.td, color: "var(--text-secondary)" }}>
+                      {log.ipAddress || "unknown"}
                     </td>
-                    <td style={{ ...styles.td, color: 'var(--text-muted)' }}>
+                    <td style={{ ...styles.td, color: "var(--text-muted)" }}>
                       {formatDateTime(log.timestamp)}
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>
@@ -156,119 +178,118 @@ export default function ActivityLogs() {
 }
 
 const styles = {
-  loadingContainer: {
-    display: 'flex',
-    flexGrow: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "16px",
   },
   pageTitle: {
-    fontSize: '1.75rem',
-    fontWeight: '700',
-    color: '#fff',
+    fontSize: "1.75rem",
+    fontWeight: "700",
+    color: "#fff",
+    margin: 0,
   },
   pageSubtitle: {
-    color: 'var(--text-secondary)',
-    fontSize: '0.9rem',
-    marginTop: '4px',
+    color: "var(--text-secondary)",
+    fontSize: "0.9rem",
+    marginTop: "4px",
+    marginBottom: 0,
   },
   errorAlert: {
-    background: 'rgba(239, 68, 68, 0.1)',
-    border: '1px solid rgba(239, 68, 68, 0.2)',
-    borderRadius: '10px',
-    padding: '12px',
-    color: '#fca5a5',
-    fontSize: '0.85rem',
+    background: "rgba(239, 68, 68, 0.1)",
+    border: "1px solid rgba(239, 68, 68, 0.2)",
+    borderRadius: "10px",
+    padding: "12px",
+    color: "#fca5a5",
+    fontSize: "0.85rem",
+    marginBottom: "16px",
   },
   filterRow: {
-    display: 'flex',
-    gap: '16px',
-    alignItems: 'center',
-    flexWrap: 'wrap',
+    display: "flex",
+    gap: "16px",
+    alignItems: "center",
+    flexWrap: "wrap",
+    marginBottom: "16px",
   },
   searchWrapper: {
-    position: 'relative',
+    position: "relative",
     flexGrow: 1,
-    maxWidth: '450px',
-    display: 'flex',
-    alignItems: 'center',
+    maxWidth: "450px",
+    display: "flex",
+    alignItems: "center",
   },
   searchIcon: {
-    position: 'absolute',
-    left: '14px',
-    color: 'var(--text-muted)',
+    position: "absolute",
+    left: "14px",
+    color: "var(--text-secondary)",
   },
   selectWrapper: {
-    width: '180px',
+    width: "180px",
   },
   selectDropdown: {
-    cursor: 'pointer',
+    cursor: "pointer",
   },
   tablePanel: {
-    padding: '16px',
+    padding: "16px",
     flexGrow: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'hidden',
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
   },
   tableWrapper: {
-    overflow: 'auto',
+    overflow: "auto",
     flexGrow: 1,
-    height: '100%',
+    height: "100%",
   },
   table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    textAlign: 'left',
+    width: "100%",
+    borderCollapse: "collapse",
+    textAlign: "left",
   },
   thRow: {
-    borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+    borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
   },
   th: {
-    padding: '12px 16px',
-    color: 'var(--text-secondary)',
-    fontSize: '0.85rem',
-    fontWeight: '600',
-    letterSpacing: '0.5px',
+    padding: "12px 16px",
+    color: "var(--text-secondary)",
+    fontSize: "0.85rem",
+    fontWeight: "600",
+    letterSpacing: "0.5px",
   },
   tr: {
-    borderBottom: '1px solid rgba(255, 255, 255, 0.03)',
-    ':hover': {
-      backgroundColor: 'rgba(255, 255, 255, 0.01)',
-    }
+    borderBottom: "1px solid rgba(255, 255, 255, 0.03)",
   },
   td: {
-    padding: '14px 16px',
-    fontSize: '0.9rem',
-    verticalAlign: 'middle',
+    padding: "14px 16px",
+    fontSize: "0.9rem",
+    verticalAlign: "middle",
   },
   actionTag: (action) => {
-    let color = '#3b82f6';
-    let bg = 'rgba(59, 130, 246, 0.1)';
-    if (action === 'UPLOAD') { color = '#10b981'; bg = 'rgba(16, 185, 129, 0.1)'; }
-    if (action === 'DELETE' || action === 'PURGE') { color = '#ef4444'; bg = 'rgba(239, 68, 68, 0.1)'; }
-    if (action === 'RESTORE') { color = '#ffd740'; bg = 'rgba(255, 215, 64, 0.1)'; }
-    
+    let color = "#3b82f6";
+    let bg = "rgba(59, 130, 246, 0.1)";
+    if (action === "UPLOAD") {
+      color = "#10b981";
+      bg = "rgba(16, 185, 129, 0.1)";
+    }
+    if (action === "DELETE" || action === "PURGE") {
+      color = "#ef4444";
+      bg = "rgba(239, 68, 68, 0.1)";
+    }
+    if (action === "RESTORE") {
+      color = "#ffd740";
+      bg = "rgba(255, 215, 64, 0.1)";
+    }
+
     return {
-      fontSize: '0.75rem',
-      fontWeight: '700',
-      padding: '3px 8px',
-      borderRadius: '5px',
+      fontSize: "0.75rem",
+      fontWeight: "700",
+      padding: "3px 8px",
+      borderRadius: "5px",
       color,
       backgroundColor: bg,
-      letterSpacing: '0.5px',
-      display: 'inline-block',
+      letterSpacing: "0.5px",
+      display: "inline-block",
     };
-  },
-  emptyCell: {
-    padding: '40px',
-    textAlign: 'center',
-    color: 'var(--text-muted)',
-    fontSize: '0.9rem',
   },
 };

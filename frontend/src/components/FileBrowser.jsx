@@ -1,45 +1,241 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { api } from '../utils/api';
-import { FolderClosed, FileText, ArrowLeft, Plus, Upload, Grid, List, Search, Loader2, Download, Trash, Edit2, ChevronRight, FileImage, FileVideo, FileAudio, FileArchive, CornerDownRight } from 'lucide-react';
+import React, { useEffect, useState, useRef, useMemo, useCallback } from "react";
+import { api } from "../utils/api";
+import {
+  FolderClosed,
+  Plus,
+  Upload,
+  Loader2,
+  Download,
+  Trash,
+  Edit2,
+  FileImage,
+  FileVideo,
+  FileAudio,
+  FileArchive,
+  FileText,
+  CornerDownRight,
+  Info,
+  X,
+  FileUp,
+  Star,
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import Breadcrumbs from "./filebrowser/Breadcrumbs";
+import SearchBar from "./filebrowser/SearchBar";
+import FilterBar from "./filebrowser/FilterBar";
+import ContextMenu from "./filebrowser/ContextMenu";
+import FileBrowserSkeleton from "./filebrowser/FileBrowserSkeleton";
+import EmptyState from "./EmptyState";
+import { toast } from "react-hot-toast";
+import "../styles/filebrowser.css";
 
-export default function FileBrowser({ onActionSuccess, onPreviewSelect }) {
+export default function FileBrowser({ onActionSuccess, onPreviewSelect, refreshTrigger }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState("");
   const [currentFolder, setCurrentFolder] = useState(null);
-  const [folderHistory, setFolderHistory] = useState([]); // Array of {id, name}
-  const [viewMode, setViewMode] = useState('grid'); // grid or list
-  const [error, setError] = useState('');
-  
-  // File upload state
+  const [folderHistory, setFolderHistory] = useState([]);
+  const [error, setError] = useState("");
+
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState({ percent: 0, loaded: 0, total: 0 });
+  const xhrRef = useRef(null);
+
+  const [starredIds, setStarredIds] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aethervault_starred");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const [starredOnly, setStarredOnly] = useState(false);
+
+  const [recentFiles, setRecentFiles] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aethervault_recents");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  // Sync starred items to localStorage
+  useEffect(() => {
+    localStorage.setItem("aethervault_starred", JSON.stringify(starredIds));
+  }, [starredIds]);
+
+  const toggleStar = (id) => {
+    setStarredIds((prev) => {
+      const isStarred = prev.includes(id);
+      let updated;
+      if (isStarred) {
+        updated = prev.filter((x) => x !== id);
+        toast.success("Removed from Favorites");
+      } else {
+        updated = [...prev, id];
+        toast.success("Added to Favorites");
+      }
+      return updated;
+    });
+  };
+
+  const addToRecents = (file, actionType = "viewed") => {
+    if (!file || file.isFolder) return;
+    setRecentFiles((prev) => {
+      const filtered = prev.filter((x) => x._id !== file._id);
+      const updated = [{ ...file, actionType, timestamp: Date.now() }, ...filtered].slice(0, 8);
+      localStorage.setItem("aethervault_recents", JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // Grid/List View state with localStorage persistence
+  const [viewMode, setViewMode] = useState(() => {
+    return localStorage.getItem("aethervault_view_mode") || "grid";
+  });
+
+  const handleSetViewMode = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem("aethervault_view_mode", mode);
+  };
+
+  // Filtering & Sorting states
+  const [filterType, setFilterType] = useState("ALL");
+  const [sortBy, setSortBy] = useState("name");
+  const [sortOrder, setSortOrder] = useState("asc");
+
+  // Context Menu state
+  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, item: null });
+
+  // File Upload states
   const [uploading, setUploading] = useState(false);
   const [uploadPercent, setUploadPercent] = useState(0);
   const [isDragOver, setIsDragOver] = useState(false);
-  
+
   // Modals state
   const [showFolderModal, setShowFolderModal] = useState(false);
-  const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderName, setNewFolderName] = useState("");
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameItem, setRenameItem] = useState(null);
-  const [renameValue, setRenameValue] = useState('');
+  const [renameValue, setRenameValue] = useState("");
   const [actioningId, setActioningId] = useState(null);
+
+  // Metadata Properties modal state
+  const [showPropertiesModal, setShowPropertiesModal] = useState(false);
+  const [propertiesItem, setPropertiesItem] = useState(null);
 
   const fileInputRef = useRef(null);
 
-  useEffect(() => {
-    fetchFiles();
-  }, [currentFolder, search]);
+  const formatSize = (bytes) => {
+    if (bytes === 0) return "—";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  };
+
+  const getFileIcon = (mimeType) => {
+    const mime = mimeType.toLowerCase();
+    if (mime.startsWith("image/")) return <FileImage size={24} color="#e040fb" />;
+    if (mime.startsWith("video/")) return <FileVideo size={24} color="#ff5252" />;
+    if (mime.startsWith("audio/")) return <FileAudio size={24} color="#ffd740" />;
+    if (mime.includes("zip") || mime.includes("rar") || mime.includes("tar") || mime.includes("compressed")) return <FileArchive size={24} color="#69f0ae" />;
+    return <FileText size={24} color="#3b82f6" />;
+  };
+
+  const getFileExtensionBadge = (filename, mimeType) => {
+    if (mimeType.includes("folder")) {
+      return <span className="badge badge-folder">Folder</span>;
+    }
+    const ext = filename.split(".").pop().toUpperCase();
+    const mime = mimeType.toLowerCase();
+    if (mime.includes("pdf")) return <span className="badge badge-pdf">PDF</span>;
+    if (mime.startsWith("image/")) return <span className="badge badge-image">IMG</span>;
+    if (mime.startsWith("video/")) return <span className="badge badge-video">VIDEO</span>;
+    if (mime.startsWith("audio/")) return <span className="badge badge-audio">AUDIO</span>;
+    if (mime.includes("zip") || mime.includes("rar") || mime.includes("tar") || mime.includes("compressed")) return <span className="badge badge-zip">ZIP</span>;
+    if (mime.includes("word") || mime.includes("document")) return <span className="badge badge-doc">DOC</span>;
+    if (mime.includes("sheet") || mime.includes("excel")) return <span className="badge badge-spreadsheet">XLS</span>;
+    if (mime.includes("presentation") || mime.includes("powerpoint")) return <span className="badge badge-presentation">PPT</span>;
+    if (mime.includes("text/html") || mime.includes("javascript") || mime.includes("json") || mime.includes("css")) return <span className="badge badge-code">CODE</span>;
+    if (mime.startsWith("text/")) return <span className="badge badge-text">TXT</span>;
+    
+    if (ext.length <= 4 && /^[A-Z0-9]+$/.test(ext)) {
+      return <span className="badge badge-other">{ext}</span>;
+    }
+    return <span className="badge badge-other">FILE</span>;
+  };
+
+  const renderHighlightedName = (name, query) => {
+    if (!query.trim()) return name;
+    const parts = name.split(new RegExp(`(${query})`, "gi"));
+    return (
+      <span>
+        {parts.map((part, i) =>
+          part.toLowerCase() === query.toLowerCase() ? (
+            <mark key={i} className="search-highlight">
+              {part}
+            </mark>
+          ) : (
+            part
+          )
+        )}
+      </span>
+    );
+  };
 
   const fetchFiles = async () => {
     setLoading(true);
-    setError('');
+    setError("");
     try {
       const data = await api.listFiles(currentFolder?._id || null, search);
       setItems(data);
     } catch (err) {
-      setError('Failed to fetch files.');
+      setError("Failed to fetch files.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCancelUpload = () => {
+    if (xhrRef.current) {
+      xhrRef.current.abort();
+    }
+  };
+
+  const handleUpload = async (filesList) => {
+    if (!filesList || filesList.length === 0) return;
+
+    setUploading(true);
+    setUploadProgress({ percent: 0, loaded: 0, total: 0 });
+    setError("");
+    const toastId = toast.loading("Encrypting & uploading files...");
+    try {
+      const uploaded = await api.uploadFiles(
+        filesList,
+        currentFolder?._id || null,
+        (percent, loaded, total) => {
+          setUploadProgress({ percent, loaded, total });
+        },
+        xhrRef
+      );
+      setItems([...uploaded, ...items]);
+      uploaded.forEach((f) => addToRecents(f, "uploaded"));
+      toast.success("Upload completed successfully", { id: toastId });
+      if (onActionSuccess) onActionSuccess();
+    } catch (err) {
+      if (xhrRef.current?.status === 0) {
+        toast.error("Upload aborted", { id: toastId });
+      } else {
+        toast.error(err.message || "Failed to upload files.", { id: toastId });
+        setError(err.message || "Failed to upload files.");
+      }
+    } finally {
+      setUploading(false);
+      setUploadProgress({ percent: 0, loaded: 0, total: 0 });
+      xhrRef.current = null;
     }
   };
 
@@ -47,16 +243,19 @@ export default function FileBrowser({ onActionSuccess, onPreviewSelect }) {
     e.preventDefault();
     if (!newFolderName.trim()) return;
 
-    setActioningId('create-folder');
-    setError('');
+    setActioningId("create-folder");
+    setError("");
+    const toastId = toast.loading("Creating folder...");
     try {
       const newFolder = await api.createFolder(newFolderName.trim(), currentFolder?._id || null);
-      setItems([newFolder, ...items].sort((a, b) => b.isFolder - a.isFolder || a.name.localeCompare(b.name)));
+      setItems([newFolder, ...items]);
       setShowFolderModal(false);
-      setNewFolderName('');
-      if (onActionSuccess) onActionSuccess(); // Update stats
+      setNewFolderName("");
+      toast.success("Folder created successfully", { id: toastId });
+      if (onActionSuccess) onActionSuccess();
     } catch (err) {
-      setError(err.message || 'Failed to create folder.');
+      toast.error(err.message || "Failed to create folder.", { id: toastId });
+      setError(err.message || "Failed to create folder.");
     } finally {
       setActioningId(null);
     }
@@ -67,16 +266,19 @@ export default function FileBrowser({ onActionSuccess, onPreviewSelect }) {
     if (!renameValue.trim() || !renameItem) return;
 
     setActioningId(renameItem._id);
-    setError('');
+    setError("");
+    const toastId = toast.loading("Renaming item...");
     try {
       const updated = await api.renameItem(renameItem._id, renameValue.trim());
-      setItems(items.map(item => item._id === renameItem._id ? updated : item));
+      setItems(items.map((item) => (item._id === renameItem._id ? updated : item)));
       setShowRenameModal(false);
       setRenameItem(null);
-      setRenameValue('');
-      if (onActionSuccess) onActionSuccess(); // Update logs
+      setRenameValue("");
+      toast.success("Item renamed successfully", { id: toastId });
+      if (onActionSuccess) onActionSuccess();
     } catch (err) {
-      setError(err.message || 'Failed to rename item.');
+      toast.error(err.message || "Failed to rename item.", { id: toastId });
+      setError(err.message || "Failed to rename item.");
     } finally {
       setActioningId(null);
     }
@@ -87,345 +289,486 @@ export default function FileBrowser({ onActionSuccess, onPreviewSelect }) {
     if (!confirmation) return;
 
     setActioningId(id);
-    setError('');
+    setError("");
+    const toastId = toast.loading("Moving to Recycle Bin...");
     try {
       await api.moveToTrash(id);
-      setItems(items.filter(item => item._id !== id));
-      if (onActionSuccess) onActionSuccess(); // Update stats
+      setItems(items.filter((item) => item._id !== id));
+      toast.success(`"${name}" moved to Recycle Bin`, { id: toastId });
+      if (onActionSuccess) onActionSuccess();
     } catch (err) {
-      setError(err.message || 'Failed to delete item.');
+      toast.error(err.message || "Failed to delete item.", { id: toastId });
+      setError(err.message || "Failed to delete item.");
     } finally {
       setActioningId(null);
     }
   };
 
-  const handleUpload = async (filesList) => {
-    if (!filesList || filesList.length === 0) return;
-    
-    setUploading(true);
-    setUploadPercent(0);
-    setError('');
-    try {
-      const uploaded = await api.uploadFiles(filesList, currentFolder?._id || null, (percent) => {
-        setUploadPercent(percent);
-      });
-      setItems([...uploaded, ...items].sort((a, b) => b.isFolder - a.isFolder || a.name.localeCompare(b.name)));
-      if (onActionSuccess) onActionSuccess(); // Update stats
-    } catch (err) {
-      setError(err.message || 'Failed to upload files.');
-    } finally {
-      setUploading(false);
-      setUploadPercent(0);
-    }
-  };
-
-  // Drag & Drop handlers
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragOver(false);
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    if (e.dataTransfer.files) {
-      handleUpload(e.dataTransfer.files);
-    }
-  };
-
-  // Folder navigation
-  const navigateIntoFolder = (folder) => {
-    setFolderHistory([...folderHistory, currentFolder ? { _id: currentFolder._id, name: currentFolder.name } : { _id: null, name: 'Root' }]);
+  const navigateIntoFolder = useCallback((folder) => {
+    setFolderHistory((prev) => [
+      ...prev,
+      currentFolder ? { _id: currentFolder._id, name: currentFolder.name } : { _id: null, name: "Root" },
+    ]);
     setCurrentFolder(folder);
-    setSearch('');
-  };
+    setSearch("");
+  }, [currentFolder]);
 
-  const navigateBack = () => {
+  const navigateBack = useCallback(() => {
     if (folderHistory.length === 0) return;
     const previous = folderHistory[folderHistory.length - 1];
-    setFolderHistory(folderHistory.slice(0, -1));
+    setFolderHistory((prev) => prev.slice(0, -1));
     setCurrentFolder(previous._id ? { _id: previous._id, name: previous.name } : null);
-    setSearch('');
-  };
+    setSearch("");
+  }, [folderHistory]);
 
-  const navigateToBreadcrumb = (index) => {
+  const navigateToBreadcrumb = useCallback((index) => {
     if (index === -1) {
-      // Navigate to root
       setFolderHistory([]);
       setCurrentFolder(null);
     } else {
       const destination = folderHistory[index];
-      setFolderHistory(folderHistory.slice(0, index));
+      setFolderHistory((prev) => prev.slice(0, index));
       setCurrentFolder(destination._id ? { _id: destination._id, name: destination.name } : null);
     }
-    setSearch('');
+    setSearch("");
+  }, [folderHistory]);
+
+  const handleContextMenu = (e, item) => {
+    e.preventDefault();
+    setContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      item,
+    });
   };
 
-  const formatSize = (bytes) => {
-    if (bytes === 0) return '—';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
+  // Fetch files on folder or search parameter change
+  useEffect(() => {
+    fetchFiles();
+  }, [currentFolder, search, refreshTrigger]);
 
-  const getFileIcon = (mimeType) => {
-    const mime = mimeType.toLowerCase();
-    if (mime.startsWith('image/')) return <FileImage size={24} color="#e040fb" />;
-    if (mime.startsWith('video/')) return <FileVideo size={24} color="#ff5252" />;
-    if (mime.startsWith('audio/')) return <FileAudio size={24} color="#ffd740" />;
-    if (mime.includes('zip') || mime.includes('rar') || mime.includes('tar')) return <FileArchive size={24} color="#69f0ae" />;
-    return <FileText size={24} color="#3b82f6" />;
-  };
+  // Open search redirected folder if any
+  useEffect(() => {
+    const savedFolder = localStorage.getItem("aethervault_search_folder");
+    if (savedFolder) {
+      localStorage.removeItem("aethervault_search_folder");
+      try {
+        const parsed = JSON.parse(savedFolder);
+        navigateIntoFolder(parsed);
+      } catch (err) {
+        console.error("Failed to parse redirected folder", err);
+      }
+    }
+  }, [refreshTrigger, navigateIntoFolder]);
+
+  // Handle keyboard shortcut hooks
+  useEffect(() => {
+    const handleShortcutUpload = () => {
+      fileInputRef.current?.click();
+    };
+    const handleShortcutNewFolder = () => {
+      setShowFolderModal(true);
+      setNewFolderName("");
+    };
+    const handleShortcutDelete = () => {
+      if (selectedItem) {
+        handleDelete(selectedItem._id, selectedItem.name);
+      }
+    };
+    const handleShortcutEsc = () => {
+      setSelectedItem(null);
+      setContextMenu((prev) => ({ ...prev, visible: false }));
+      setShowFolderModal(false);
+      setShowRenameModal(false);
+      setShowPropertiesModal(false);
+    };
+
+    window.addEventListener("aethervault_shortcut_upload", handleShortcutUpload);
+    window.addEventListener("aethervault_shortcut_new_folder", handleShortcutNewFolder);
+    window.addEventListener("aethervault_shortcut_delete", handleShortcutDelete);
+    window.addEventListener("aethervault_shortcut_esc", handleShortcutEsc);
+
+    return () => {
+      window.removeEventListener("aethervault_shortcut_upload", handleShortcutUpload);
+      window.removeEventListener("aethervault_shortcut_new_folder", handleShortcutNewFolder);
+      window.removeEventListener("aethervault_shortcut_delete", handleShortcutDelete);
+      window.removeEventListener("aethervault_shortcut_esc", handleShortcutEsc);
+    };
+  }, [selectedItem]);
+
+  // Clear selected item on navigation
+  useEffect(() => {
+    setSelectedItem(null);
+  }, [currentFolder, search]);
+
+  // Context Menu close listener
+  useEffect(() => {
+    const closeMenu = () => setContextMenu((prev) => ({ ...prev, visible: false }));
+    window.addEventListener("click", closeMenu);
+    return () => window.removeEventListener("click", closeMenu);
+  }, []);
+
+  // Global Drag & Drop listener for the entire file browser
+  useEffect(() => {
+    const handleDragEnter = (e) => {
+      e.preventDefault();
+      setIsDragOver(true);
+    };
+
+    const handleDragOver = (e) => {
+      e.preventDefault();
+    };
+
+    const handleDragLeave = (e) => {
+      // Only close if leaving the viewport boundary
+      if (e.clientX === 0 && e.clientY === 0) {
+        setIsDragOver(false);
+      }
+    };
+
+    const handleDrop = (e) => {
+      e.preventDefault();
+      setIsDragOver(false);
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleUpload(e.dataTransfer.files);
+      }
+    };
+
+    window.addEventListener("dragenter", handleDragEnter);
+    window.addEventListener("dragover", handleDragOver);
+    window.addEventListener("dragleave", handleDragLeave);
+    window.addEventListener("drop", handleDrop);
+
+    return () => {
+      window.removeEventListener("dragenter", handleDragEnter);
+      window.removeEventListener("dragover", handleDragOver);
+      window.removeEventListener("dragleave", handleDragLeave);
+      window.removeEventListener("drop", handleDrop);
+    };
+  }, [currentFolder]);
+
+  // Client-side filtering and sorting
+  const processedItems = useMemo(() => {
+    let result = [...items];
+
+    if (filterType !== "ALL") {
+      result = result.filter((item) => {
+        if (item.isFolder) return true;
+        const mime = item.mimeType.toLowerCase();
+        if (filterType === "IMAGES") return mime.startsWith("image/");
+        if (filterType === "VIDEOS") return mime.startsWith("video/");
+        if (filterType === "AUDIO") return mime.startsWith("audio/");
+        if (filterType === "DOCUMENTS") {
+          return (
+            mime.includes("pdf") ||
+            mime.includes("document") ||
+            mime.includes("sheet") ||
+            mime.includes("text") ||
+            mime.includes("msword") ||
+            mime.includes("powerpoint")
+          );
+        }
+        if (filterType === "ARCHIVES") {
+          return mime.includes("zip") || mime.includes("rar") || mime.includes("tar") || mime.includes("compressed");
+        }
+        return false;
+      });
+    }
+
+    if (starredOnly) {
+      result = result.filter((item) => starredIds.includes(item._id));
+    }
+
+    result.sort((a, b) => {
+      if (a.isFolder && !b.isFolder) return -1;
+      if (!a.isFolder && b.isFolder) return 1;
+
+      let comparison = 0;
+      if (sortBy === "name") {
+        comparison = a.name.localeCompare(b.name);
+      } else if (sortBy === "size") {
+        comparison = a.size - b.size;
+      } else if (sortBy === "date") {
+        comparison = new Date(a.updatedAt) - new Date(b.updatedAt);
+      }
+
+      return sortOrder === "asc" ? comparison : -comparison;
+    });
+
+    return result;
+  }, [items, filterType, sortBy, sortOrder, starredOnly, starredIds]);
 
   return (
-    <div 
-      className="main-content animate-fade-in" 
-      style={{ position: 'relative', height: 'calc(100vh - 40px)' }}
-      onDragOver={handleDragOver}
-    >
-      {/* Fullscreen drag-over overlay */}
-      {isDragOver && (
-        <div 
-          style={styles.dragOverlay}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-        >
-          <div style={styles.dragOverlayCard}>
-            <Upload size={64} className="spinner" color="#9d4edd" />
-            <h2>Drop files to upload securely</h2>
-            <p>Your files will be end-to-end AES-256 encrypted before writing to disk.</p>
-          </div>
-        </div>
-      )}
+    <div className="filebrowser-container">
+      {/* Animated Drag overlay */}
+      <AnimatePresence>
+        {isDragOver && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="drag-overlay"
+          >
+            <div className="drag-overlay-card">
+              <FileUp size={64} className="spinner" color="var(--primary)" />
+              <h2>Drop files here to upload securely</h2>
+              <p>Your files will be end-to-end encrypted with AES-256 before disk writes.</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Toolbar / Actions Row */}
-      <div style={styles.toolbar}>
-        <div style={styles.toolbarLeft}>
-          {currentFolder && (
-            <button onClick={navigateBack} className="btn-icon" title="Go Back" style={{ marginRight: '8px' }}>
-              <ArrowLeft size={18} />
-            </button>
-          )}
+      {/* Toolbar */}
+      <div className="toolbar">
+        <div className="toolbar-left">
+          <Breadcrumbs
+            currentFolder={currentFolder}
+            folderHistory={folderHistory}
+            navigateBack={navigateBack}
+            navigateToBreadcrumb={navigateToBreadcrumb}
+          />
+        </div>
+
+        <div className="toolbar-right">
+          <SearchBar search={search} setSearch={setSearch} />
           
-          {/* Breadcrumbs navigation */}
-          <div style={styles.breadcrumbs}>
-            <span 
-              onClick={() => navigateToBreadcrumb(-1)} 
-              style={styles.breadcrumbLink}
-            >
-              Root
-            </span>
-            {folderHistory.slice(1).map((hist, index) => (
-              <React.Fragment key={hist._id || index}>
-                <ChevronRight size={14} color="var(--text-muted)" />
-                <span 
-                  onClick={() => navigateToBreadcrumb(index + 1)} 
-                  style={styles.breadcrumbLink}
-                >
-                  {hist.name}
-                </span>
-              </React.Fragment>
-            ))}
-            {currentFolder && (
-              <>
-                <ChevronRight size={14} color="var(--text-muted)" />
-                <span style={styles.breadcrumbActive}>{currentFolder.name}</span>
-              </>
-            )}
-          </div>
-        </div>
+          <FilterBar
+            filterType={filterType}
+            setFilterType={setFilterType}
+            sortBy={sortBy}
+            setSortBy={setSortBy}
+            sortOrder={sortOrder}
+            setSortOrder={setSortOrder}
+            viewMode={viewMode}
+            setViewMode={handleSetViewMode}
+          />
 
-        <div style={styles.toolbarRight}>
-          {/* Search bar */}
-          <div style={styles.searchWrapper}>
-            <Search size={16} style={styles.searchIcon} />
-            <input
-              type="text"
-              className="input-field"
-              style={styles.searchInput}
-              placeholder="Search files..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
+          <button
+            onClick={() => setStarredOnly(!starredOnly)}
+            className={`btn ${starredOnly ? "btn-primary" : "btn-secondary"}`}
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px", height: "38px" }}
+            title="Filter Starred Only"
+          >
+            <Star size={14} fill={starredOnly ? "#ffd740" : "transparent"} color={starredOnly ? "#ffd740" : "var(--primary)"} />
+            <span>Starred</span>
+          </button>
 
-          {/* Switch View Buttons */}
-          <div style={styles.viewModeGroup}>
-            <button 
-              onClick={() => setViewMode('grid')} 
-              style={{ ...styles.viewBtn, ...(viewMode === 'grid' ? styles.viewBtnActive : {}) }}
-              title="Grid View"
-            >
-              <Grid size={16} />
-            </button>
-            <button 
-              onClick={() => setViewMode('list')} 
-              style={{ ...styles.viewBtn, ...(viewMode === 'list' ? styles.viewBtnActive : {}) }}
-              title="List View"
-            >
-              <List size={16} />
-            </button>
-          </div>
-
-          {/* File Operations */}
           <button onClick={() => setShowFolderModal(true)} className="btn btn-secondary" title="New Folder">
-            <Plus size={18} />
-            <span>New Folder</span>
+            <Plus size={16} />
+            <span>Folder</span>
           </button>
 
           <button onClick={() => fileInputRef.current.click()} className="btn btn-primary" title="Upload Files">
-            <Upload size={18} />
+            <Upload size={16} />
             <span>Upload</span>
           </button>
           <input
             type="file"
             ref={fileInputRef}
-            style={{ display: 'none' }}
+            style={{ display: "none" }}
             onChange={(e) => handleUpload(e.target.files)}
             multiple
           />
         </div>
       </div>
 
-      {error && <div style={styles.errorAlert}>{error}</div>}
+      {error && <div className="error-alert">{error}</div>}
 
-      {/* Main Files Display */}
+      {/* Recent Files Widget Carousel */}
+      {!loading && !search && !currentFolder && recentFiles.length > 0 && (
+        <div className="recent-files-widget animate-fade-in">
+          <h3 className="recent-title">Recent Files</h3>
+          <div className="recent-chips-row">
+            {recentFiles.map((file) => (
+              <div
+                key={file._id}
+                onClick={() => (addToRecents(file, "viewed"), onPreviewSelect(file))}
+                className="recent-file-chip glass"
+                title={`Last action: ${file.actionType || "viewed"}`}
+              >
+                {getFileIcon(file.mimeType)}
+                <div className="recent-file-info">
+                  <span className="recent-file-name">{file.name}</span>
+                  <span className="recent-file-meta">{formatSize(file.size)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Main Content Area */}
       {loading ? (
-        <div style={styles.loadingContainer}>
-          <Loader2 className="spinner" size={48} color="#9d4edd" />
-        </div>
-      ) : items.length === 0 ? (
-        <div style={styles.emptyContainer}>
-          <FolderClosed size={64} color="var(--text-muted)" />
-          <h3>This folder is empty</h3>
-          <p>Drag and drop files here, or use the actions in the top-right toolbar.</p>
-        </div>
-      ) : viewMode === 'grid' ? (
-        /* GRID VIEW */
-        <div style={styles.gridContainer}>
-          {items.map((item) => (
-            <div 
-              key={item._id} 
-              className="glass-panel glass-panel-hover" 
-              style={styles.gridCard}
-              onDoubleClick={() => item.isFolder ? navigateIntoFolder(item) : onPreviewSelect(item)}
+        <FileBrowserSkeleton viewMode={viewMode} />
+      ) : processedItems.length === 0 ? (
+        <EmptyState
+          icon={FolderClosed}
+          title={search ? "No files found" : "This folder is empty"}
+          description={search ? `We couldn't find any items matching "${search}".` : "This vault directory is currently empty. Drop files anywhere or secure them."}
+          actionText={search ? "" : "Upload Files"}
+          onAction={search ? null : () => fileInputRef.current.click()}
+        />
+      ) : viewMode === "grid" ? (
+        /* GRID VIEW with Framer Motion Appearances */
+        <motion.div
+          initial="hidden"
+          animate="show"
+          variants={{
+            hidden: { opacity: 0 },
+            show: { opacity: 1, transition: { staggerChildren: 0.04 } },
+          }}
+          className="file-grid"
+        >
+          {processedItems.map((item) => (
+            <motion.div
+              key={item._id}
+              variants={{
+                hidden: { opacity: 0, y: 15 },
+                show: { opacity: 1, y: 0 },
+              }}
+              className={`file-card glass ${selectedItem?._id === item._id ? "selected-item" : ""}`}
+              onClick={() => setSelectedItem(item)}
+              onDoubleClick={() => (item.isFolder ? navigateIntoFolder(item) : (addToRecents(item, "viewed"), onPreviewSelect(item)))}
+              onContextMenu={(e) => handleContextMenu(e, item)}
+              whileHover={{ y: -4 }}
             >
-              <div style={styles.gridCardTop}>
-                {item.isFolder ? (
-                  <FolderClosed size={48} color="#9d4edd" />
-                ) : (
-                  getFileIcon(item.mimeType)
-                )}
-                
-                {/* Actions Dropdown */}
-                <div style={styles.cardActions}>
-                  {!item.isFolder && (
-                    <a href={api.getDownloadUrl(item._id)} className="btn-icon" style={styles.cardActionBtn} title="Download">
-                      <Download size={14} />
-                    </a>
-                  )}
-                  {item.isFolder && (
-                    <a href={api.getDownloadUrl(item._id)} className="btn-icon" style={styles.cardActionBtn} title="Download ZIP">
-                      <Download size={14} />
-                    </a>
-                  )}
-                  <button 
-                    onClick={() => { setRenameItem(item); setRenameValue(item.name); setShowRenameModal(true); }} 
-                    className="btn-icon" 
-                    style={styles.cardActionBtn}
+              <div className="file-card-top">
+                {item.isFolder ? <FolderClosed size={44} color="var(--primary)" /> : getFileIcon(item.mimeType)}
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleStar(item._id);
+                  }}
+                  className={`star-btn ${starredIds.includes(item._id) ? "starred" : "unstarred"}`}
+                  title={starredIds.includes(item._id) ? "Remove from Favorites" : "Add to Favorites"}
+                >
+                  <Star size={14} fill={starredIds.includes(item._id) ? "#ffd740" : "transparent"} />
+                </button>
+
+                <div className="action-buttons">
+                  <button
+                    onClick={() => {
+                      setRenameItem(item);
+                      setRenameValue(item.name);
+                      setShowRenameModal(true);
+                    }}
+                    className="btn-icon"
                     title="Rename"
                   >
-                    <Edit2 size={14} />
+                    <Edit2 size={12} />
                   </button>
-                  <button 
-                    onClick={() => handleDelete(item._id, item.name)} 
-                    className="btn-icon" 
-                    style={styles.cardActionBtn}
+                  <button
+                    onClick={() => handleDelete(item._id, item.name)}
+                    className="btn-icon text-danger"
                     title="Delete"
                     disabled={actioningId === item._id}
                   >
-                    {actioningId === item._id ? <Loader2 className="spinner" size={14} /> : <Trash size={14} />}
+                    {actioningId === item._id ? <Loader2 className="spinner" size={12} /> : <Trash size={12} />}
                   </button>
                 </div>
               </div>
 
-              <div style={styles.gridCardBottom}>
-                <p style={styles.gridName} title={item.name}>{item.name}</p>
-                <p style={styles.gridSize}>{item.isFolder ? 'Folder' : formatSize(item.size)}</p>
+              <div className="file-card-bottom">
+                <p className="file-name" title={item.name}>
+                  {renderHighlightedName(item.name, search)}
+                </p>
+                <div className="file-meta">
+                  <span className="file-date">
+                    {new Date(item.updatedAt).toLocaleDateString([], { month: "short", day: "numeric" })}
+                  </span>
+                  {getFileExtensionBadge(item.name, item.mimeType)}
+                </div>
               </div>
-            </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       ) : (
-        /* LIST VIEW */
-        <div className="glass-panel" style={styles.listPanel}>
-          <table style={styles.table}>
+        /* LIST VIEW with Fade-ins */
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="list-panel glass"
+        >
+          <table className="file-table">
             <thead>
-              <tr style={styles.thRow}>
-                <th style={styles.th}>Name</th>
-                <th style={{ ...styles.th, width: '150px' }}>Type</th>
-                <th style={{ ...styles.th, width: '120px' }}>Size</th>
-                <th style={{ ...styles.th, width: '180px' }}>Modified</th>
-                <th style={{ ...styles.th, width: '180px', textAlign: 'right' }}>Actions</th>
+              <tr>
+                <th>Name</th>
+                <th style={{ width: "130px" }}>Format</th>
+                <th style={{ width: "120px" }}>Size</th>
+                <th style={{ width: "160px" }}>Last Modified</th>
+                <th style={{ width: "160px", textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
-                <tr 
-                  key={item._id} 
-                  style={styles.tr}
-                  onDoubleClick={() => item.isFolder ? navigateIntoFolder(item) : onPreviewSelect(item)}
+              {processedItems.map((item) => (
+                <tr
+                  key={item._id}
+                  onClick={() => setSelectedItem(item)}
+                  onDoubleClick={() => (item.isFolder ? navigateIntoFolder(item) : (addToRecents(item, "viewed"), onPreviewSelect(item)))}
+                  onContextMenu={(e) => handleContextMenu(e, item)}
+                  className={selectedItem?._id === item._id ? "selected-item-row" : ""}
                 >
-                  <td style={styles.td}>
-                    <div style={styles.listNameCell}>
-                      {item.isFolder ? (
-                        <FolderClosed size={20} color="#9d4edd" />
-                      ) : (
-                        getFileIcon(item.mimeType)
-                      )}
-                      <span style={styles.listName} title={item.name}>{item.name}</span>
+                  <td>
+                    <div className="list-name-cell">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleStar(item._id);
+                        }}
+                        style={{ background: "transparent", border: "none", cursor: "pointer", display: "inline-flex", marginRight: "8px", padding: 0 }}
+                        className={starredIds.includes(item._id) ? "star-btn-list starred" : "star-btn-list unstarred"}
+                        title={starredIds.includes(item._id) ? "Remove from Favorites" : "Add to Favorites"}
+                      >
+                        <Star size={14} fill={starredIds.includes(item._id) ? "#ffd740" : "transparent"} />
+                      </button>
+                      {item.isFolder ? <FolderClosed size={18} color="var(--primary)" /> : getFileIcon(item.mimeType)}
+                      <span className="list-name-text" title={item.name}>
+                        {renderHighlightedName(item.name, search)}
+                      </span>
                     </div>
                   </td>
-                  <td style={{ ...styles.td, color: 'var(--text-secondary)' }}>
-                    {item.isFolder ? 'Folder' : item.mimeType.split('/')[1] || 'File'}
+                  <td>{getFileExtensionBadge(item.name, item.mimeType)}</td>
+                  <td style={{ color: "var(--text-secondary)" }}>{item.isFolder ? "—" : formatSize(item.size)}</td>
+                  <td style={{ color: "var(--text-secondary)", opacity: 0.8 }}>
+                    {new Date(item.updatedAt).toLocaleDateString([], { hour: "2-digit", minute: "2-digit" })}
                   </td>
-                  <td style={{ ...styles.td, color: 'var(--text-secondary)' }}>
-                    {item.isFolder ? '—' : formatSize(item.size)}
-                  </td>
-                  <td style={{ ...styles.td, color: 'var(--text-muted)' }}>
-                    {new Date(item.updatedAt).toLocaleDateString()}
-                  </td>
-                  <td style={{ ...styles.td, textAlign: 'right' }}>
-                    <div style={styles.listActions}>
-                      <button 
-                        onClick={() => item.isFolder ? navigateIntoFolder(item) : onPreviewSelect(item)}
-                        className="btn-icon" 
-                        title={item.isFolder ? "Open folder" : "Preview file"}
+                  <td>
+                    <div className="list-action-buttons">
+                      <button
+                        onClick={() => (item.isFolder ? navigateIntoFolder(item) : (addToRecents(item, "viewed"), onPreviewSelect(item)))}
+                        className="btn-icon"
+                        title="Open"
                       >
-                        {item.isFolder ? <CornerDownRight size={14} /> : <CornerDownRight size={14} />}
+                        <CornerDownRight size={12} />
                       </button>
-                      <a href={api.getDownloadUrl(item._id)} className="btn-icon" title="Download">
-                        <Download size={14} />
+                      <a 
+                        href={api.getDownloadUrl(item._id)} 
+                        className="btn-icon" 
+                        title="Download"
+                        onClick={() => addToRecents(item, "downloaded")}
+                      >
+                        <Download size={12} />
                       </a>
-                      <button 
-                        onClick={() => { setRenameItem(item); setRenameValue(item.name); setShowRenameModal(true); }} 
+                      <button
+                        onClick={() => {
+                          setRenameItem(item);
+                          setRenameValue(item.name);
+                          setShowRenameModal(true);
+                        }}
                         className="btn-icon"
                         title="Rename"
                       >
-                        <Edit2 size={14} />
+                        <Edit2 size={12} />
                       </button>
-                      <button 
-                        onClick={() => handleDelete(item._id, item.name)} 
+                      <button
+                        onClick={() => handleDelete(item._id, item.name)}
                         className="btn-icon"
                         title="Delete"
                         disabled={actioningId === item._id}
                       >
-                        {actioningId === item._id ? <Loader2 className="spinner" size={14} /> : <Trash size={14} color="#ef4444" />}
+                        {actioningId === item._id ? <Loader2 className="spinner" size={12} /> : <Trash size={12} />}
                       </button>
                     </div>
                   </td>
@@ -433,28 +776,80 @@ export default function FileBrowser({ onActionSuccess, onPreviewSelect }) {
               ))}
             </tbody>
           </table>
+        </motion.div>
+      )}
+
+      {/* Floating Upload Progress Indicator */}
+      {uploading && (
+        <div className="progress-card glass" style={styles.progressCard}>
+          <div style={styles.progressHeader}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Loader2 className="spinner" size={14} color="var(--primary)" />
+              <span style={{ fontSize: "0.8rem", fontWeight: "600", color: "#fff" }}>Uploading Encrypted...</span>
+            </div>
+            <span style={{ fontSize: "0.8rem", fontWeight: "700", color: "var(--primary)" }}>
+              {uploadProgress.percent}%
+            </span>
+          </div>
+          
+          <div style={styles.progressTrack}>
+            <div style={{ ...styles.progressFill, width: `${uploadProgress.percent}%` }}></div>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px" }}>
+            <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>
+              {formatSize(uploadProgress.loaded)} / {formatSize(uploadProgress.total)}
+              {uploadProgress.total > 0 && ` (${formatSize(Math.max(uploadProgress.total - uploadProgress.loaded, 0))} left)`}
+            </span>
+            <button 
+              onClick={handleCancelUpload}
+              className="btn-gray"
+              style={{ fontSize: "0.68rem", padding: "4px 8px", minHeight: 0, height: "auto" }}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Floating Upload Progress Overlay */}
-      {uploading && (
-        <div className="glass-panel animate-fade-in" style={styles.progressCard}>
-          <div style={styles.progressHeader}>
-            <Loader2 className="spinner" size={16} color="var(--primary)" />
-            <span style={{ fontSize: '0.85rem', fontWeight: '600' }}>Uploading files...</span>
-            <span style={{ fontSize: '0.85rem', color: 'var(--primary)' }}>{uploadPercent}%</span>
-          </div>
-          <div style={styles.progressTrack}>
-            <div style={{ ...styles.progressFill, width: `${uploadPercent}%` }}></div>
-          </div>
-        </div>
-      )}
+      {/* Modern Context Menu */}
+      <AnimatePresence>
+        {contextMenu.visible && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            item={contextMenu.item}
+            onOpen={() =>
+              contextMenu.item.isFolder ? navigateIntoFolder(contextMenu.item) : (addToRecents(contextMenu.item, "viewed"), onPreviewSelect(contextMenu.item))
+            }
+            onDownload={() => {
+              addToRecents(contextMenu.item, "downloaded");
+              window.open(api.getDownloadUrl(contextMenu.item._id));
+            }}
+            onRename={() => {
+              setRenameItem(contextMenu.item);
+              setRenameValue(contextMenu.item.name);
+              setShowRenameModal(true);
+            }}
+            onDelete={() => handleDelete(contextMenu.item._id, contextMenu.item.name)}
+            onProperties={() => {
+              setPropertiesItem(contextMenu.item);
+              setShowPropertiesModal(true);
+            }}
+            isStarred={starredIds.includes(contextMenu.item._id)}
+            onStar={() => {
+              toggleStar(contextMenu.item._id);
+              setContextMenu((prev) => ({ ...prev, visible: false }));
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* MODALS */}
       {/* Folder Creation Modal */}
       {showFolderModal && (
-        <div style={styles.modalBackdrop} onClick={() => setShowFolderModal(false)}>
-          <div className="glass-panel" style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-backdrop" onClick={() => setShowFolderModal(false)} style={styles.modalBackdrop}>
+          <div className="modal-card glass" onClick={(e) => e.stopPropagation()} style={styles.modalCard}>
             <h3 style={styles.modalTitle}>Create New Folder</h3>
             <form onSubmit={handleCreateFolder} style={styles.modalForm}>
               <input
@@ -465,23 +860,19 @@ export default function FileBrowser({ onActionSuccess, onPreviewSelect }) {
                 onChange={(e) => setNewFolderName(e.target.value)}
                 autoFocus
                 required
-                disabled={actioningId === 'create-folder'}
+                disabled={actioningId === "create-folder"}
               />
               <div style={styles.modalActions}>
-                <button 
-                  type="button" 
-                  onClick={() => setShowFolderModal(false)} 
+                <button
+                  type="button"
+                  onClick={() => setShowFolderModal(false)}
                   className="btn btn-secondary"
-                  disabled={actioningId === 'create-folder'}
+                  disabled={actioningId === "create-folder"}
                 >
                   Cancel
                 </button>
-                <button 
-                  type="submit" 
-                  className="btn btn-primary"
-                  disabled={actioningId === 'create-folder'}
-                >
-                  {actioningId === 'create-folder' ? <Loader2 className="spinner" size={16} /> : 'Create'}
+                <button type="submit" className="btn btn-primary" disabled={actioningId === "create-folder"}>
+                  {actioningId === "create-folder" ? <Loader2 className="spinner" size={16} /> : "Create"}
                 </button>
               </div>
             </form>
@@ -491,8 +882,15 @@ export default function FileBrowser({ onActionSuccess, onPreviewSelect }) {
 
       {/* Rename Modal */}
       {showRenameModal && (
-        <div style={styles.modalBackdrop} onClick={() => { setShowRenameModal(false); setRenameItem(null); }}>
-          <div className="glass-panel" style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+        <div
+          className="modal-backdrop"
+          onClick={() => {
+            setShowRenameModal(false);
+            setRenameItem(null);
+          }}
+          style={styles.modalBackdrop}
+        >
+          <div className="modal-card glass" onClick={(e) => e.stopPropagation()} style={styles.modalCard}>
             <h3 style={styles.modalTitle}>Rename Item</h3>
             <form onSubmit={handleRename} style={styles.modalForm}>
               <input
@@ -505,320 +903,187 @@ export default function FileBrowser({ onActionSuccess, onPreviewSelect }) {
                 disabled={actioningId !== null}
               />
               <div style={styles.modalActions}>
-                <button 
-                  type="button" 
-                  onClick={() => { setShowRenameModal(false); setRenameItem(null); }} 
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRenameModal(false);
+                    setRenameItem(null);
+                  }}
                   className="btn btn-secondary"
                   disabled={actioningId !== null}
                 >
                   Cancel
                 </button>
-                <button 
-                  type="submit" 
-                  className="btn btn-primary"
-                  disabled={actioningId !== null}
-                >
-                  {actioningId === renameItem?._id ? <Loader2 className="spinner" size={16} /> : 'Rename'}
+                <button type="submit" className="btn btn-primary" disabled={actioningId !== null}>
+                  {actioningId === renameItem?._id ? <Loader2 className="spinner" size={16} /> : "Rename"}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* Metadata Properties Dialog */}
+      <AnimatePresence>
+        {showPropertiesModal && propertiesItem && (
+          <div className="modal-backdrop" onClick={() => setShowPropertiesModal(false)} style={styles.modalBackdrop}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="modal-card glass"
+              onClick={(e) => e.stopPropagation()}
+              style={styles.modalCard}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h3 style={styles.modalTitle}>Item Properties</h3>
+                <button
+                  onClick={() => setShowPropertiesModal(false)}
+                  style={{ background: "transparent", border: "none", color: "var(--text-secondary)", cursor: "pointer" }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div style={styles.propertiesList}>
+                <div style={styles.propRow}>
+                  <span style={styles.propLabel}>Name:</span>
+                  <span style={styles.propVal} title={propertiesItem.name}>{propertiesItem.name}</span>
+                </div>
+                <div style={styles.propRow}>
+                  <span style={styles.propLabel}>Type:</span>
+                  <span style={styles.propVal}>
+                    {propertiesItem.isFolder ? "Virtual File Folder" : propertiesItem.mimeType}
+                  </span>
+                </div>
+                <div style={styles.propRow}>
+                  <span style={styles.propLabel}>Size:</span>
+                  <span style={styles.propVal}>
+                    {propertiesItem.isFolder ? "Calculated dynamically" : formatSize(propertiesItem.size)}
+                  </span>
+                </div>
+                <div style={styles.propRow}>
+                  <span style={styles.propLabel}>Encryption:</span>
+                  <span style={{ ...styles.propVal, color: "#10b981", fontWeight: "600" }}>
+                    AES-256-CBC Secure Stream
+                  </span>
+                </div>
+                <div style={styles.propRow}>
+                  <span style={styles.propLabel}>Last Modified:</span>
+                  <span style={styles.propVal}>
+                    {new Date(propertiesItem.updatedAt).toLocaleString()}
+                  </span>
+                </div>
+                <div style={styles.propRow}>
+                  <span style={styles.propLabel}>Unique ID:</span>
+                  <span style={{ ...styles.propVal, fontFamily: "monospace", fontSize: "0.75rem" }}>
+                    {propertiesItem._id}
+                  </span>
+                </div>
+              </div>
+
+              <button onClick={() => setShowPropertiesModal(false)} className="btn btn-primary" style={{ width: "100%", marginTop: "10px" }}>
+                Done
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
 const styles = {
-  toolbar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '20px',
-    flexWrap: 'wrap',
-  },
-  toolbarLeft: {
-    display: 'flex',
-    alignItems: 'center',
-  },
-  breadcrumbs: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    fontSize: '0.95rem',
-  },
-  breadcrumbLink: {
-    color: 'var(--text-secondary)',
-    cursor: 'pointer',
-    fontWeight: '500',
-    transition: 'color 0.2s ease',
-    ':hover': {
-      color: '#fff',
-    }
-  },
-  breadcrumbActive: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  toolbarRight: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    flexWrap: 'wrap',
-  },
-  searchWrapper: {
-    position: 'relative',
-    display: 'flex',
-    alignItems: 'center',
-  },
-  searchIcon: {
-    position: 'absolute',
-    left: '12px',
-    color: 'var(--text-muted)',
-  },
-  searchInput: {
-    width: '200px',
-    padding: '8px 12px 8px 36px',
-    fontSize: '0.85rem',
-    borderRadius: '8px',
-  },
-  viewModeGroup: {
-    display: 'flex',
-    background: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: '8px',
-    padding: '3px',
-    border: '1px solid rgba(255, 255, 255, 0.05)',
-  },
-  viewBtn: {
-    background: 'transparent',
-    border: 'none',
-    width: '30px',
-    height: '30px',
-    borderRadius: '6px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    color: 'var(--text-secondary)',
-    transition: 'all 0.2s ease',
-  },
-  viewBtnActive: {
-    background: 'rgba(255, 255, 255, 0.1)',
-    color: '#fff',
-  },
-  errorAlert: {
-    background: 'rgba(239, 68, 68, 0.1)',
-    border: '1px solid rgba(239, 68, 68, 0.2)',
-    borderRadius: '10px',
-    padding: '12px',
-    color: '#fca5a5',
-    fontSize: '0.85rem',
-  },
-  loadingContainer: {
-    display: 'flex',
-    flexGrow: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: '300px',
-  },
-  emptyContainer: {
-    display: 'flex',
-    flexGrow: 1,
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: '300px',
-    gap: '12px',
-    color: 'var(--text-secondary)',
-    textAlign: 'center',
-  },
-  gridContainer: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-    gap: '20px',
-    overflowY: 'auto',
-    flexGrow: 1,
-  },
-  gridCard: {
-    padding: '16px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px',
-    cursor: 'pointer',
-    userSelect: 'none',
-  },
-  gridCardTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    position: 'relative',
-  },
-  cardActions: {
-    display: 'flex',
-    gap: '4px',
-    opacity: 0,
-    transition: 'opacity 0.2s ease',
-    // We target CSS class manually inside the inline DOM style hover trigger if needed, 
-    // but in modern React we can toggle state, or write standard global hover targets inside index.css!
-    // Let's configure list panel hover and card hover inside css!
-  },
-  cardActionBtn: {
-    width: '28px',
-    height: '28px',
-  },
-  gridCardBottom: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-  },
-  gridName: {
-    fontSize: '0.9rem',
-    fontWeight: '500',
-    color: '#fff',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  gridSize: {
-    fontSize: '0.75rem',
-    color: 'var(--text-muted)',
-  },
-  listPanel: {
-    padding: '16px',
-    overflow: 'auto',
-    flexGrow: 1,
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    textAlign: 'left',
-  },
-  thRow: {
-    borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-  },
-  th: {
-    padding: '12px 16px',
-    color: 'var(--text-secondary)',
-    fontSize: '0.85rem',
-    fontWeight: '600',
-  },
-  tr: {
-    borderBottom: '1px solid rgba(255, 255, 255, 0.03)',
-    cursor: 'pointer',
-    userSelect: 'none',
-  },
-  td: {
-    padding: '12px 16px',
-    fontSize: '0.9rem',
-    verticalAlign: 'middle',
-  },
-  listNameCell: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    maxWidth: '300px',
-  },
-  listName: {
-    color: '#fff',
-    fontWeight: '500',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  listActions: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: '6px',
-  },
   progressCard: {
-    position: 'absolute',
-    bottom: '20px',
-    right: '20px',
-    width: '280px',
-    padding: '16px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-    boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
-    border: '1px solid var(--primary)',
-    zIndex: 100,
+    position: "fixed",
+    bottom: "20px",
+    right: "20px",
+    width: "260px",
+    padding: "14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
+    border: "1px solid var(--primary)",
+    zIndex: 9999,
   },
   progressHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '8px',
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "8px",
   },
   progressTrack: {
-    height: '6px',
-    background: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: '3px',
-    overflow: 'hidden',
+    height: "6px",
+    background: "rgba(255, 255, 255, 0.05)",
+    borderRadius: "3px",
+    overflow: "hidden",
   },
   progressFill: {
-    height: '100%',
-    background: 'var(--primary)',
-    borderRadius: '3px',
-    transition: 'width 0.1s ease',
-  },
-  dragOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: '100%',
-    height: '100%',
-    background: 'rgba(13, 14, 18, 0.85)',
-    backdropFilter: 'blur(10px)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: '16px',
-    border: '2px dashed var(--primary)',
-    zIndex: 99,
-  },
-  dragOverlayCard: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: '16px',
-    textAlign: 'center',
-    maxWidth: '400px',
-    padding: '20px',
+    height: "100%",
+    background: "var(--primary)",
+    borderRadius: "3px",
+    transition: "width 0.1s ease",
   },
   modalBackdrop: {
-    position: 'fixed',
+    position: "fixed",
     top: 0,
     left: 0,
-    width: '100vw',
-    height: '100vh',
-    background: 'rgba(0, 0, 0, 0.6)',
-    backdropFilter: 'blur(4px)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 200,
+    width: "100vw",
+    height: "100vh",
+    background: "rgba(0, 0, 0, 0.6)",
+    backdropFilter: "blur(6px)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2000,
   },
   modalCard: {
-    width: '100%',
-    maxWidth: '360px',
-    padding: '24px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px',
+    width: "100%",
+    maxWidth: "360px",
+    padding: "24px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
   },
   modalTitle: {
-    fontSize: '1.1rem',
-    fontWeight: '600',
-    color: '#fff',
+    fontSize: "1.1rem",
+    fontWeight: "600",
+    color: "#fff",
+    margin: 0,
   },
   modalForm: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px',
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
   },
   modalActions: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: '12px',
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "12px",
+  },
+  propertiesList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+    margin: "8px 0",
+  },
+  propRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    fontSize: "0.85rem",
+    borderBottom: "1px solid rgba(255,255,255,0.03)",
+    paddingBottom: "6px",
+  },
+  propLabel: {
+    color: "var(--text-secondary)",
+  },
+  propVal: {
+    color: "#fff",
+    textAlign: "right",
+    maxWidth: "200px",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
 };

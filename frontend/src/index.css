@@ -1,6 +1,8 @@
 @import "./styles/variables.css";
 @import "./styles/theme.css";
 @import "./styles/animations.css";
+@import "./styles/responsive.css";
+@import "./styles/settings.css";
 
 :root {
   --bg-gradient: linear-gradient(135deg, #0d0e12 0%, #171923 100%);

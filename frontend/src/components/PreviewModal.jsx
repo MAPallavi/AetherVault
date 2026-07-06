@@ -1,23 +1,29 @@
-import React, { useEffect, useState } from 'react';
-import { api } from '../utils/api';
-import { X, Download, FileText, Loader2 } from 'lucide-react';
+import React, { useEffect, useState } from "react";
+import { api } from "../utils/api";
+import { X, Download, FileText, Loader2, RefreshCw } from "lucide-react";
+import { toast } from "react-hot-toast";
 
-export default function PreviewModal({ file, onClose }) {
-  const [textContents, setTextContents] = useState('');
+export default function PreviewModal({ file, onClose, onActionSuccess }) {
+  const [textContents, setTextContents] = useState("");
   const [loadingText, setLoadingText] = useState(false);
+  const [zoomScale, setZoomScale] = useState(1);
+  const [fileName, setFileName] = useState(file.name);
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(file.name);
 
   const previewUrl = api.getPreviewUrl(file._id);
   const downloadUrl = api.getDownloadUrl(file._id);
   const mime = file.mimeType.toLowerCase();
 
-  const isImage = mime.startsWith('image/');
-  const isVideo = mime.startsWith('video/');
-  const isAudio = mime.startsWith('audio/');
-  const isPdf = mime === 'application/pdf';
-  const isText = mime.startsWith('text/') || 
-                 mime === 'application/json' || 
-                 mime === 'application/javascript' || 
-                 mime === 'application/xml';
+  const isImage = mime.startsWith("image/");
+  const isVideo = mime.startsWith("video/");
+  const isAudio = mime.startsWith("audio/");
+  const isPdf = mime === "application/pdf";
+  const isText =
+    mime.startsWith("text/") ||
+    mime === "application/json" ||
+    mime === "application/javascript" ||
+    mime === "application/xml";
 
   useEffect(() => {
     if (isText) {
@@ -33,28 +39,65 @@ export default function PreviewModal({ file, onClose }) {
         const text = await res.text();
         setTextContents(text);
       } else {
-        setTextContents('Failed to load text preview contents.');
+        setTextContents("Failed to load text preview contents.");
       }
     } catch (err) {
-      setTextContents('Error loading file preview.');
+      setTextContents("Error loading file preview.");
     } finally {
       setLoadingText(false);
     }
   };
 
+  const handleRenameSubmit = async (e) => {
+    e.preventDefault();
+    if (!renameValue.trim()) return;
+    const toastId = toast.loading("Renaming file...");
+    try {
+      await api.renameItem(file._id, renameValue.trim());
+      setFileName(renameValue.trim());
+      setRenaming(false);
+      toast.success("File renamed successfully", { id: toastId });
+      if (onActionSuccess) onActionSuccess();
+    } catch (err) {
+      toast.error(err.message || "Failed to rename file", { id: toastId });
+    }
+  };
+
+  const handleDeleteClick = async () => {
+    const confirmation = window.confirm(`Move "${fileName}" to the Recycle Bin?`);
+    if (!confirmation) return;
+    const toastId = toast.loading("Moving file to Recycle Bin...");
+    try {
+      await api.moveToTrash(file._id);
+      toast.success(`"${fileName}" moved to Recycle Bin`, { id: toastId });
+      if (onActionSuccess) onActionSuccess();
+      onClose();
+    } catch (err) {
+      toast.error(err.message || "Failed to delete file", { id: toastId });
+    }
+  };
+
   const formatSize = (bytes) => {
-    if (bytes === 0) return '0 B';
+    if (bytes === 0) return "0 B";
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const sizes = ["B", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
   };
 
   const renderContent = () => {
     if (isImage) {
       return (
-        <div style={styles.mediaContainer}>
-          <img src={previewUrl} alt={file.name} style={styles.imagePreview} />
+        <div style={{ ...styles.mediaContainer, overflow: "auto" }}>
+          <img
+            src={previewUrl}
+            alt={fileName}
+            style={{
+              ...styles.imagePreview,
+              transform: `scale(${zoomScale})`,
+              transition: "transform 0.1s ease",
+            }}
+          />
         </div>
       );
     }
@@ -82,7 +125,7 @@ export default function PreviewModal({ file, onClose }) {
     if (isPdf) {
       return (
         <div style={styles.pdfContainer}>
-          <iframe src={previewUrl} title={file.name} style={styles.pdfIframe}></iframe>
+          <iframe src={previewUrl} title={fileName} style={styles.pdfIframe}></iframe>
         </div>
       );
     }
@@ -91,7 +134,7 @@ export default function PreviewModal({ file, onClose }) {
       if (loadingText) {
         return (
           <div style={styles.centerLoading}>
-            <Loader2 className="spinner" size={32} color="#9d4edd" />
+            <Loader2 className="spinner" size={32} color="#7c3aed" />
           </div>
         );
       }
@@ -110,14 +153,14 @@ export default function PreviewModal({ file, onClose }) {
         <div style={styles.fallbackIcon}>
           <FileText size={64} color="var(--text-secondary)" />
         </div>
-        <h3 style={styles.fallbackTitle}>{file.name}</h3>
+        <h3 style={styles.fallbackTitle}>{fileName}</h3>
         <p style={styles.fallbackMeta}>
           {formatSize(file.size)} • {file.mimeType}
         </p>
         <p style={styles.fallbackText}>
           No preview is available for this file type. You can download it to view locally.
         </p>
-        <a href={downloadUrl} className="btn btn-primary" style={{ marginTop: '16px' }}>
+        <a href={downloadUrl} className="btn-purple" style={{ ...styles.actionBtn, marginTop: "16px" }}>
           <Download size={18} />
           <span>Download File</span>
         </a>
@@ -128,23 +171,133 @@ export default function PreviewModal({ file, onClose }) {
   return (
     <div style={styles.backdrop} onClick={onClose}>
       <div className="glass-panel" style={styles.modal} onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
         <div style={styles.header}>
           <div style={styles.headerTitle}>
-            <span style={styles.fileName}>{file.name}</span>
+            <span style={styles.fileName}>{fileName}</span>
             <span style={styles.fileSize}>({formatSize(file.size)})</span>
           </div>
-          <div style={styles.headerActions}>
-            <a href={downloadUrl} className="btn-icon" title="Download">
-              <Download size={18} />
-            </a>
-            <button onClick={onClose} className="btn-icon" title="Close">
-              <X size={18} />
-            </button>
-          </div>
+          <button onClick={onClose} className="btn-icon" title="Close" style={{ minWidth: 0, padding: "8px" }}>
+            <X size={18} />
+          </button>
         </div>
-        
-        <div style={styles.body}>
-          {renderContent()}
+
+        {/* Two-Pane Workspace Layout */}
+        <div style={styles.mainContainer}>
+          {/* Left Canvas Panel */}
+          <div style={styles.leftPane}>
+            {isImage && (
+              <div style={styles.zoomBar}>
+                <button
+                  onClick={() => setZoomScale((s) => Math.max(s - 0.25, 0.5))}
+                  className="btn-gray"
+                  style={styles.zoomBtn}
+                >
+                  -
+                </button>
+                <span style={{ fontSize: "0.8rem", color: "#fff", fontWeight: "600" }}>
+                  {Math.round(zoomScale * 100)}%
+                </span>
+                <button
+                  onClick={() => setZoomScale((s) => Math.min(s + 0.25, 3))}
+                  className="btn-gray"
+                  style={styles.zoomBtn}
+                >
+                  +
+                </button>
+                <button onClick={() => setZoomScale(1)} className="btn-gray" style={styles.zoomBtn}>
+                  Reset
+                </button>
+              </div>
+            )}
+            <div style={styles.contentWrapper}>{renderContent()}</div>
+          </div>
+
+          {/* Right Info Details Panel */}
+          <div style={styles.rightPane}>
+            <div style={styles.metaSection}>
+              <h4 style={styles.sectionTitle}>File Information</h4>
+
+              <div style={styles.metaRow}>
+                <span style={styles.metaLabel}>Name:</span>
+                {renaming ? (
+                  <form onSubmit={handleRenameSubmit} style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%" }}>
+                    <input
+                      type="text"
+                      className="input-field"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      style={{ fontSize: "0.8rem", padding: "6px 10px" }}
+                      autoFocus
+                    />
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <button type="submit" className="btn-purple" style={{ padding: "4px 8px", fontSize: "0.75rem" }}>
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRenaming(false)}
+                        className="btn-gray"
+                        style={{ padding: "4px 8px", fontSize: "0.75rem" }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <span
+                    style={{ ...styles.metaValue, cursor: "pointer", borderBottom: "1px dashed var(--primary)" }}
+                    onClick={() => setRenaming(true)}
+                    title="Click to rename"
+                  >
+                    {fileName}
+                  </span>
+                )}
+              </div>
+
+              <div style={styles.metaRow}>
+                <span style={styles.metaLabel}>Mime Type:</span>
+                <span style={styles.metaValue}>{file.mimeType}</span>
+              </div>
+
+              <div style={styles.metaRow}>
+                <span style={styles.metaLabel}>Encryption Cipher:</span>
+                <span style={{ ...styles.metaValue, color: "var(--success)", fontWeight: "600" }}>
+                  AES-256-CBC Rests
+                </span>
+              </div>
+
+              <div style={styles.metaRow}>
+                <span style={styles.metaLabel}>File Size:</span>
+                <span style={styles.metaValue}>{formatSize(file.size)}</span>
+              </div>
+
+              <div style={styles.metaRow}>
+                <span style={styles.metaLabel}>Uploaded:</span>
+                <span style={styles.metaValue}>{new Date(file.createdAt).toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div style={styles.actionSection}>
+              <h4 style={styles.sectionTitle}>Operations</h4>
+              <div style={styles.actionButtonsCol}>
+                <a href={downloadUrl} className="btn-purple" style={styles.actionBtn}>
+                  <Download size={14} />
+                  <span>Download file</span>
+                </a>
+                <button onClick={() => setRenaming(true)} className="btn-gray" style={styles.actionBtn}>
+                  <span>Rename file</span>
+                </button>
+                <button
+                  onClick={handleDeleteClick}
+                  className="btn-gray"
+                  style={{ ...styles.actionBtn, color: "var(--danger)" }}
+                >
+                  <span>Move to Trash</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -153,166 +306,259 @@ export default function PreviewModal({ file, onClose }) {
 
 const styles = {
   backdrop: {
-    position: 'fixed',
+    position: "fixed",
     top: 0,
     left: 0,
-    width: '100vw',
-    height: '100vh',
-    background: 'rgba(5, 5, 8, 0.85)',
-    backdropFilter: 'blur(8px)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: "100vw",
+    height: "100vh",
+    background: "rgba(5, 5, 8, 0.85)",
+    backdropFilter: "blur(8px)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     zIndex: 999,
-    padding: '20px',
+    padding: "20px",
   },
   modal: {
-    width: '100%',
-    maxWidth: '900px',
-    height: '80vh',
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'hidden',
+    width: "100%",
+    maxWidth: "1000px",
+    height: "85vh",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
   },
   header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '16px 24px',
-    borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "16px 24px",
+    borderBottom: "1px solid rgba(255, 255, 255, 0.05)",
   },
   headerTitle: {
-    display: 'flex',
-    alignItems: 'baseline',
-    gap: '8px',
-    maxWidth: '70%',
-    overflow: 'hidden',
+    display: "flex",
+    alignItems: "baseline",
+    gap: "8px",
+    maxWidth: "70%",
+    overflow: "hidden",
   },
   fileName: {
-    fontSize: '1.05rem',
-    fontWeight: '600',
-    color: '#fff',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
+    fontSize: "1.05rem",
+    fontWeight: "600",
+    color: "#fff",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   fileSize: {
-    fontSize: '0.85rem',
-    color: 'var(--text-muted)',
+    fontSize: "0.85rem",
+    color: "var(--text-secondary)",
   },
-  headerActions: {
-    display: 'flex',
-    gap: '10px',
-  },
-  body: {
+  mainContainer: {
+    display: "flex",
     flexGrow: 1,
-    padding: '24px',
-    overflow: 'auto',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'rgba(0, 0, 0, 0.2)',
+    overflow: "hidden",
+    height: "calc(100% - 56px)",
+  },
+  leftPane: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    background: "rgba(0, 0, 0, 0.25)",
+    overflow: "hidden",
+    position: "relative",
+  },
+  rightPane: {
+    width: "280px",
+    borderLeft: "1px solid rgba(255, 255, 255, 0.05)",
+    padding: "20px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "24px",
+    overflowY: "auto",
+    background: "rgba(255, 255, 255, 0.01)",
+  },
+  zoomBar: {
+    position: "absolute",
+    top: "12px",
+    left: "12px",
+    zIndex: 10,
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    background: "rgba(0, 0, 0, 0.6)",
+    padding: "6px 12px",
+    borderRadius: "10px",
+    border: "1px solid rgba(255, 255, 255, 0.06)",
+  },
+  zoomBtn: {
+    padding: "4px 8px",
+    fontSize: "0.75rem",
+    height: "auto",
+    minWidth: 0,
+    marginTop: 0,
+    background: "rgba(255, 255, 255, 0.05)",
+  },
+  contentWrapper: {
+    flex: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    width: "100%",
+    height: "100%",
   },
   mediaContainer: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-    height: '100%',
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    height: "100%",
   },
   imagePreview: {
-    maxWidth: '100%',
-    maxHeight: '100%',
-    objectFit: 'contain',
-    borderRadius: '8px',
-    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+    maxWidth: "100%",
+    maxHeight: "100%",
+    objectFit: "contain",
+    borderRadius: "8px",
+    boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
   },
   videoPreview: {
-    maxWidth: '100%',
-    maxHeight: '100%',
-    borderRadius: '8px',
-    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+    maxWidth: "90%",
+    maxHeight: "90%",
+    borderRadius: "8px",
+    boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
   },
   audioContainer: {
-    width: '100%',
-    maxWidth: '500px',
-    padding: '40px',
-    background: 'rgba(0, 0, 0, 0.3)',
-    borderRadius: '12px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: "100%",
+    maxWidth: "400px",
+    padding: "30px",
+    background: "rgba(0, 0, 0, 0.3)",
+    borderRadius: "12px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
   },
   audioPreview: {
-    width: '100%',
+    width: "100%",
   },
   pdfContainer: {
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
   },
   pdfIframe: {
-    width: '100%',
-    height: '100%',
-    border: 'none',
-    borderRadius: '8px',
+    width: "100%",
+    height: "100%",
+    border: "none",
   },
   textContainer: {
-    width: '100%',
-    height: '100%',
-    background: 'rgba(0, 0, 0, 0.3)',
-    border: '1px solid rgba(255, 255, 255, 0.05)',
-    borderRadius: '8px',
-    padding: '16px',
-    overflow: 'auto',
+    width: "100%",
+    height: "100%",
+    background: "rgba(0, 0, 0, 0.3)",
+    border: "1px solid rgba(255, 255, 255, 0.05)",
+    padding: "16px",
+    overflow: "auto",
   },
   preCode: {
     fontFamily: "'JetBrains Mono', monospace",
-    fontSize: '0.85rem',
-    color: '#a78bfa',
-    lineHeight: '1.5',
-    textAlign: 'left',
+    fontSize: "0.85rem",
+    color: "#a78bfa",
+    lineHeight: "1.5",
+    textAlign: "left",
     margin: 0,
-    whiteSpace: 'pre-wrap',
+    whiteSpace: "pre-wrap",
   },
   centerLoading: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100%',
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    height: "100%",
   },
   fallbackContainer: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    textAlign: 'center',
-    maxWidth: '400px',
-    padding: '30px',
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    textAlign: "center",
+    maxWidth: "400px",
+    padding: "30px",
   },
   fallbackIcon: {
-    width: '96px',
-    height: '96px',
-    borderRadius: '24px',
-    background: 'rgba(255, 255, 255, 0.03)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: '20px',
-    border: '1px solid rgba(255, 255, 255, 0.05)',
+    width: "80px",
+    height: "80px",
+    borderRadius: "20px",
+    background: "rgba(255, 255, 255, 0.03)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: "16px",
+    border: "1px solid rgba(255, 255, 255, 0.05)",
   },
   fallbackTitle: {
-    fontSize: '1.2rem',
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: '8px',
+    fontSize: "1.1rem",
+    fontWeight: "600",
+    color: "#fff",
+    marginBottom: "8px",
+    margin: 0,
   },
   fallbackMeta: {
-    fontSize: '0.85rem',
-    color: 'var(--text-muted)',
-    marginBottom: '16px',
+    fontSize: "0.8rem",
+    color: "var(--text-secondary)",
+    marginBottom: "16px",
   },
   fallbackText: {
-    fontSize: '0.9rem',
-    color: 'var(--text-secondary)',
-    lineHeight: '1.5',
+    fontSize: "0.85rem",
+    color: "var(--text-secondary)",
+    lineHeight: "1.5",
+    margin: 0,
+  },
+  sectionTitle: {
+    fontSize: "0.75rem",
+    fontWeight: "700",
+    color: "var(--text-secondary)",
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
+    margin: "0 0 12px 0",
+    borderBottom: "1px dashed rgba(255,255,255,0.08)",
+    paddingBottom: "6px",
+  },
+  metaSection: {
+    display: "flex",
+    flexDirection: "column",
+  },
+  metaRow: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "2px",
+    marginBottom: "12px",
+  },
+  metaLabel: {
+    fontSize: "0.75rem",
+    color: "var(--text-secondary)",
+  },
+  metaValue: {
+    fontSize: "0.8rem",
+    color: "#fff",
+    fontWeight: "500",
+    wordBreak: "break-all",
+  },
+  actionSection: {
+    marginTop: "auto",
+  },
+  actionButtonsCol: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  },
+  actionBtn: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    padding: "8px 12px",
+    borderRadius: "8px",
+    textDecoration: "none",
+    fontSize: "0.8rem",
+    fontWeight: "600",
+    cursor: "pointer",
+    width: "100%",
+    border: "none",
   },
 };
