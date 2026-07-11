@@ -1,8 +1,23 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { FolderOpen, Eye, Download, Edit2, Trash2, Info, Star } from "lucide-react";
+import { FolderOpen, Eye, Download, Edit2, Trash2, Info, Star, Tag, Share2, History, MessageSquare } from "lucide-react";
 
-export default function ContextMenu({ x, y, item, onOpen, onDownload, onRename, onDelete, onProperties, isStarred, onStar }) {
+export default function ContextMenu({ 
+  x, 
+  y, 
+  item, 
+  onOpen, 
+  onDownload, 
+  onRename, 
+  onDelete, 
+  onProperties, 
+  isStarred, 
+  onStar, 
+  onManageTags,
+  onShare,
+  onVersionHistory,
+  onComments
+}) {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
@@ -44,6 +59,26 @@ export default function ContextMenu({ x, y, item, onOpen, onDownload, onRename, 
         <span>{isStarred ? "Remove Favorite" : "Add Favorite"}</span>
       </button>
 
+      <button onClick={onManageTags} style={styles.item} className="context-item">
+        <Tag size={14} color="#a855f7" />
+        <span>Manage Tags</span>
+      </button>
+
+      <button onClick={onShare} style={styles.item} className="context-item">
+        <Share2 size={14} color="#f472b6" />
+        <span>Shared Links</span>
+      </button>
+
+      <button onClick={onVersionHistory} style={styles.item} className="context-item">
+        <History size={14} color="#fbbf24" />
+        <span>Version History</span>
+      </button>
+
+      <button onClick={onComments} style={styles.item} className="context-item">
+        <MessageSquare size={14} color="#38bdf8" />
+        <span>Comments</span>
+      </button>
+
       <button onClick={onProperties} style={styles.item} className="context-item">
         <Info size={14} color="#18ffff" />
         <span>Properties</span>
@@ -62,8 +97,8 @@ export default function ContextMenu({ x, y, item, onOpen, onDownload, onRename, 
 const styles = {
   menu: {
     position: "fixed",
-    minWidth: "160px",
-    background: "rgba(15, 18, 30, 0.92)",
+    minWidth: "170px",
+    background: "rgba(15, 18, 30, 0.95)",
     border: "1px solid rgba(255, 255, 255, 0.08)",
     borderRadius: "12px",
     padding: "6px",
@@ -94,8 +129,7 @@ const styles = {
   },
   divider: {
     height: "1px",
-    background: "rgba(255, 255, 255, 0.05)",
-    margin: "4px 0",
-  },
+    background: "rgba(255, 255, 255, 0.06)",
+    margin: "4px 6px"
+  }
 };
-// Hover states and animation limits are scaled inside filebrowser.css

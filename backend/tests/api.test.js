@@ -67,5 +67,10 @@ describe('File Manager Backend APIs', () => {
       const res = await request(app).get('/api/files');
       expect(res.status).toBe(401);
     });
+
+    it('GET /api/files/stats/insights - should reject requests without a JWT token', async () => {
+      const res = await request(app).get('/api/files/stats/insights');
+      expect(res.status).toBe(401);
+    });
   });
 });

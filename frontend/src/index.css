@@ -238,3 +238,53 @@ tr:hover {
 .breadcrumb-link:hover {
   color: #fff !important;
 }
+
+/* Accessibility Styles */
+.high-contrast {
+  --bg-gradient: linear-gradient(135deg, #000 0%, #050505 100%);
+  --panel-bg: #0d0d0d;
+  --panel-border: #ffffff;
+  --text-primary: #ffffff;
+  --text-secondary: #e5e7eb;
+  --text-muted: #d1d5db;
+  --primary: #9d4edd;
+}
+
+.high-contrast * {
+  border-color: #ffffff !important;
+}
+
+.accessibility-focus *:focus,
+.accessibility-focus *:focus-within {
+  outline: 3px solid #ffeb3b !important;
+  outline-offset: 2px !important;
+}
+
+/* Command Palette items hover */
+.palette-item:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: #fff !important;
+}
+
+/* Premium Scrollbars Customization */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.01);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background 0.2s ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}

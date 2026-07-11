@@ -5,6 +5,7 @@ import "../styles/auth.css";
 
 export default function Auth({ onAuthSuccess }) {
   const [isSetup, setIsSetup] = useState(null);
+  const [isRegistering, setIsRegistering] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -32,6 +33,8 @@ export default function Auth({ onAuthSuccess }) {
       let data;
       if (!isSetup) {
         data = await api.setupAdmin(username, password);
+      } else if (isRegistering) {
+        data = await api.register(username, password);
       } else {
         data = await api.login(username, password);
       }
@@ -112,11 +115,32 @@ export default function Auth({ onAuthSuccess }) {
               <Loader2 className="spinner" size={18} />
             ) : !isSetup ? (
               "Set Up Account"
+            ) : isRegistering ? (
+              "Create Account"
             ) : (
               "Unlock Vault"
             )}
           </button>
         </form>
+
+        {isSetup && (
+          <div style={{ marginTop: "16px", textAlign: "center" }}>
+            <button
+              type="button"
+              onClick={() => setIsRegistering(!isRegistering)}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "var(--primary)",
+                cursor: "pointer",
+                fontSize: "0.85rem",
+                textDecoration: "underline"
+              }}
+            >
+              {isRegistering ? "Already have an account? Sign In" : "Need an account? Register here"}
+            </button>
+          </div>
+        )}
 
         <div className="auth-footer">
           <p className="auth-footer-text">

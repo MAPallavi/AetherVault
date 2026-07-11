@@ -14,6 +14,62 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Please provide a password'],
     minlength: 6,
   },
+  personalNotes: {
+    type: String,
+    default: "",
+  },
+  email: {
+    type: String,
+    trim: true,
+    lowercase: true,
+    default: "",
+  },
+  avatar: {
+    type: String,
+    default: "",
+  },
+  subscriptionPlan: {
+    type: String,
+    enum: ['Free', 'Premium', 'Business', 'Enterprise'],
+    default: 'Free',
+  },
+  accountStatus: {
+    type: String,
+    enum: ['Active', 'Suspended', 'Pending'],
+    default: 'Active',
+  },
+  role: {
+    type: String,
+    enum: ['User', 'Admin', 'Moderator'],
+    default: 'User',
+  },
+  lastLogin: {
+    type: Date,
+  },
+  timezone: {
+    type: String,
+    default: "UTC",
+  },
+  language: {
+    type: String,
+    default: "en",
+  },
+  theme: {
+    type: String,
+    default: "dark",
+  },
+  accent: {
+    type: String,
+    default: "#7C3AED",
+  },
+  storageLimit: {
+    type: Number,
+    default: 20 * 1024 * 1024 * 1024, // 20 GB default limit
+  },
+  storageUsed: {
+    type: Number,
+    default: 0,
+  },
 }, {
   timestamps: true,
 });

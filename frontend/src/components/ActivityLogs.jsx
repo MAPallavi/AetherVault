@@ -56,6 +56,37 @@ export default function ActivityLogs() {
     setFilteredLogs(result);
   };
 
+  const groupLogsByDate = (logList) => {
+    const grouped = {
+      Today: [],
+      Yesterday: [],
+      "Last Week": [],
+      Older: []
+    };
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterdayStart = new Date(todayStart);
+    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+    const lastWeekStart = new Date(todayStart);
+    lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+
+    logList.forEach(log => {
+      const logDate = new Date(log.timestamp);
+      if (logDate >= todayStart) {
+        grouped.Today.push(log);
+      } else if (logDate >= yesterdayStart) {
+        grouped.Yesterday.push(log);
+      } else if (logDate >= lastWeekStart) {
+        grouped["Last Week"].push(log);
+      } else {
+        grouped.Older.push(log);
+      }
+    });
+
+    return grouped;
+  };
+
   const formatDateTime = (dateStr) => {
     const d = new Date(dateStr);
     return (
@@ -142,34 +173,46 @@ export default function ActivityLogs() {
               }
             />
           ) : (
-            <table style={styles.table}>
-              <thead>
-                <tr style={styles.thRow}>
-                  <th style={{ ...styles.th, width: "150px" }}>Action</th>
-                  <th style={styles.th}>Details</th>
-                  <th style={{ ...styles.th, width: "130px" }}>IP Address</th>
-                  <th style={{ ...styles.th, width: "180px" }}>Timestamp</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLogs.map((log) => (
-                  <tr key={log._id} style={styles.tr}>
-                    <td style={styles.td}>
-                      <span style={styles.actionTag(log.action)}>{log.action}</span>
-                    </td>
-                    <td style={{ ...styles.td, color: "#fff", fontWeight: "500" }}>
-                      {log.details}
-                    </td>
-                    <td style={{ ...styles.td, color: "var(--text-secondary)" }}>
-                      {log.ipAddress || "unknown"}
-                    </td>
-                    <td style={{ ...styles.td, color: "var(--text-muted)" }}>
-                      {formatDateTime(log.timestamp)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+              {Object.entries(groupLogsByDate(filteredLogs)).map(([groupName, items]) => {
+                if (items.length === 0) return null;
+                return (
+                  <div key={groupName} style={{ background: "rgba(255, 255, 255, 0.01)", padding: "12px", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.03)" }}>
+                    <h3 style={{ fontSize: "0.8rem", fontWeight: "700", textTransform: "uppercase", color: "var(--primary-light)", letterSpacing: "1px", margin: "0 0 12px 0", borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: "4px" }}>
+                      {groupName} ({items.length})
+                    </h3>
+                    <table style={styles.table}>
+                      <thead>
+                        <tr style={styles.thRow}>
+                          <th style={{ ...styles.th, width: "150px" }}>Action</th>
+                          <th style={styles.th}>Details</th>
+                          <th style={{ ...styles.th, width: "130px" }}>IP Address</th>
+                          <th style={{ ...styles.th, width: "180px" }}>Timestamp</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.map((log) => (
+                          <tr key={log._id} style={styles.tr}>
+                            <td style={styles.td}>
+                              <span style={styles.actionTag(log.action)}>{log.action}</span>
+                            </td>
+                            <td style={{ ...styles.td, color: "#fff", fontWeight: "500" }}>
+                              {log.details}
+                            </td>
+                            <td style={{ ...styles.td, color: "var(--text-secondary)" }}>
+                              {log.ipAddress || "unknown"}
+                            </td>
+                            <td style={{ ...styles.td, color: "var(--text-muted)" }}>
+                              {formatDateTime(log.timestamp)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>

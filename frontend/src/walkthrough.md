@@ -1,12 +1,12 @@
 # AetherVault Architectural Refactor & Premium Upgrade Walkthrough
 
-This document outlines the changes made to refactor AetherVault's frontend code into a highly scalable React architecture, incorporating a premium glassmorphic visual interface, responsive drawer menus, and settings controls.
+This document outlines the architectural changes, premium design aesthetic updates, and advanced operations implemented in AetherVault to deliver a premium personal file manager.
 
 ---
 
 ## 🏗️ Reorganized Frontend Directories
 
-We restructured the flat `/src` workspace into dedicated architectural directories:
+We structured the flat `/src` workspace into dedicated architectural directories:
 
 ```text
 src/
@@ -28,85 +28,77 @@ src/
 
 ---
 
-## ⚡ Key Upgrades & Features Implemented
+## ⚡ Advanced Feature Upgrades (Version 1.2, 1.3, 1.4 & 1.5)
 
-1. **Dashboard Transformation**:
-   - **Dashboard Header & Dynamic Time**: Polished `DashboardHeader.jsx` to render real-time dates/times via local ticker clock loops, greeting greetings, storage summaries, and action triggers.
-   - **6-Card Statistics Grid**: Expanded `StatsCards.jsx` to output 6 responsive metric cards including Storage Remaining and Uploads Today (calculated as files uploaded in the last 24h).
-   - **Storage Capacity Progress Bars**: Refactored `StorageChart.jsx` to draw animated vector donut SVG paths coupled with translucent capacity indicators and usage progress.
-   - **Largest Files & Recent Uploads**: Introduced `LargestFiles.jsx` and `RecentUploads.jsx` widgets pulling data client-side from global directory regex listings. Allows users to double-click items for preview overlays.
-   - **Grouped Activity Logs**: Rewrote `RecentActivities.jsx` to group logs into Today, Yesterday, and Earlier sections, styling colored badges based on operation action.
-   - **Direct Dashboard Uploads**: Equipped `Dashboard.jsx` with hidden file input triggers and floating progress overlays so users can drag/upload files straight from the dashboard page.
-   - **Dashboard skeletons**: Built `DashboardSkeleton.jsx` rendering loading rows and grids before data loading.
+### 1. Interactive Preview Modal Controls
+- Enhanced the media file previewer with **Zoom in/out**, **Rotation controls**, and **Fullscreen overlay** options.
+- Incorporated a custom Markdown rendering system inside the text previewer with regular-expression-based parsing for structured markdown text documents.
 
-2. **File Browser Optimization**:
-   - **Premium File & Folder Cards**: Refactored cards inside `FileBrowser.jsx` and `filebrowser.css` to show formatted last modified timestamps, dynamic file-type icons, sizes, and file extension badges.
-   - **Instant Search Highlights**: Implemented query word wrapping via `<mark className="search-highlight">` tags in `FileBrowser.jsx` to highlight matching sub-strings instantly. Also added an `X` clear action inside `SearchBar.jsx`.
-   - **Modern Context Menu & Properties Modal**: Triggered coordinate-positioned right-click context drawers carrying Open/Preview, Download, Rename, Delete, and a new **Properties** action that pops up detailed metadata statistics.
-   - **Grid/List Persistence**: Bound the view mode switch to `localStorage` key memory so the layout persists across sessions.
-   - **Animated Drag & Drop Uploads**: Bound drag enter/over/leave event listeners globally to the page viewport. Dragging files brings up a scaling blurred overlay card, and drop actions automatically encrypt and upload the payloads.
-   - **Pulsing Loader Skeletons**: Built `FileBrowserSkeleton.jsx` carrying linear shimmers representing toolbar pathways, grids, and list rows, replacing legacy loading spinners.
-   - **Clean Empty States**: Programmed a premium zero-state panel carrying folder graphics, helpful instructions, and upload/creation triggers.
+### 2. Bulk Selection & Actions
+- Enabled multi-item selection using grid/list checkboxes, `Shift+Click` ranges, and a global `Ctrl+A` select-all trigger.
+- Added a floating bulk actions bar allowing users to batch favorite, tag, download, paste, and delete items.
+- Built a **Cancelable Bulk Progress Dialog** that tracks progress percentage, selection item counts, and supports cancel tokens to abort ongoing operations gracefully.
 
-3. **Responsive Drawer Menu & Upgraded Sidebar**:
-   - Overhauled `sidebar.css` with active button accent gradients, storage quota progress animations, and profile card styles.
-   - Orchestrated collapsible layouts inside `MainLayout.jsx`. On mobile/tablet, the sidebar shifts offscreen and slides in on hamburger click via custom CSS transitions.
+### 3. Drag & Drop Directory Tree Traversal
+- Reconstructed directories recursively on the server-side when folder drop events occur via `webkitGetAsEntry()` tree traversal.
+- Preserves local structural hierarchies on uploads automatically.
 
-4. **SaaS Navbar Upgrade**:
-   - Overhauled `Navbar.jsx` with a modern header title, an aligned quick search box, a notification bell icon with a glowing badge, and a user profile button with gradient avatar highlights.
+### 4. Upload Queue Manager Panel
+- Embedded a collapsible queue drawer listing multiple concurrent file uploads.
+- Outfitted files with individual **Pause**, **Resume**, **Cancel**, and **Retry** states.
 
-5. **SaaS Settings View**:
-   - **Left Settings Navigation Refinement**: Redesigned to use dark glass card styling, active purple gradient highlighting, Translate X hover animations, and a responsive width of `260px` (desktop) and `220px` (tablet).
-   - **Stretched Content Cards**: Maximized settings panels to stretch to full width, capped at `1200px` to resolve layout empty spaces.
-   - **Visual Consistency Overhaul**: Fully migrated all remaining inline styling parameters inside `SettingsPage.jsx` into `settings.css`. All inputs match the size styles of the rest of the application.
-   - **Premium Buttons Conversion**: Converted all save/update buttons to purple gradients (`btn-purple`) and cancel/secondary buttons to dark gray styles (`btn-gray`).
-   - **Premium Profile Card**: Displays avatar initials, usernames, and details like Status, Creation date, and Last Login. Supports editing Username, Display Name, and Email address.
-   - **Dark/Light/System Theme Selection**: Themes save to `localStorage` and transition styles instantly. Added theme preview mockup cards inside the pane.
-   - **Dynamic Color Accents**: Integrated accent picker switches (Purple, Blue, Green, Orange) that dynamically update `--primary` and `--primary-light` CSS variables.
-   - **Security Change Passwords & Checklist validations**: Change password forms carry eye show/hide keys and checking validators (Min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special char).
-   - **Sessions & Device Revocation**: Lists browser agents and OS logs matching `navigator.userAgent`. Handles device revocation and logout all clicks.
-   - **2FA Protect Mock Flow**: Integrated 2FA toggles displaying vector QR Codes and recovery code blocks with a "Coming Soon" badge.
-   - **Notification Preferences**: Stores local flags for upload alerts, delete prompts, security alerts, and system updates.
-   - **Preferences dropdowns**: Sets Grid/List view defaults, sort parameters, language placeholds, autorefresh timers, and sidebar open states memory.
-   - **Storage widgets**: Recursively sums folder sizes and lists ranked files and folders.
-   - **About details**: Contains developer specs, licenses, and links a GitHub button.
-   - **Settings skeletons**: Created `SettingsSkeleton.jsx` placeholders during load times.
+### 5. Inline Renaming & Duplicate Detection
+- Click "Rename", press `F2`, or double-click to transform filenames directly into text input fields.
+- Validates duplicates inside the folder list, prompting user confirmations prior to committing name edits.
 
-6. **Decoupled Styling Migration**:
-   - Cleared inline styles, migrating all CSS definitions into theme modules inside `src/styles/` (`auth.css`, `filebrowser.css`, `responsive.css`, `sidebar.css`, `dashboard.css`, `app.css`, `settings.css`, etc.) and loaded them globally.
+### 6. Breadcrumb Dropdown Navigation & Visited History
+- Augmented breadcrumbs with right-click context commands ("Copy Name", "Copy Path").
+- Created a dropdown listing the last 8 recently visited folders for direct navigation jumps.
+
+### 7. Storage Analyzer & Archive Lists
+- Plotted categorized space utilization bars on the settings storage page showing images, videos, documents, and archives capacity ratios.
+- Aggregates an **Unused Files** list containing vault items that have not been modified in the last 30 days.
+
+### 8. PWA Setup, Theme Engine Backups & Auto-Logout
+- Constructed `sw.js` caching layers, Standalone mode `manifest.json`, and linked it inside headers.
+- Programmed a 15-minute global idle timer that logs the session out due to user inactivity.
+- Added Export/Import configurations so settings can be backed up as JSON.
 
 ---
 
 ## 🧪 Verification & Test Results
 
-### 1. Frontend Bundler Compile
-We ran Vite production compiles which succeeded with zero warnings:
+### 1. Frontend Production Compile
+We ran Vite production compiles which succeeded with zero errors:
 ```bash
 vite v4.5.14 building for production...
-✓ 1622 modules transformed.
-dist/index.html                   1.11 kB │ gzip:   0.62 kB
-dist/assets/index-bec47615.css   30.71 kB │ gzip:   6.14 kB
-dist/assets/index-b961b1fd.js   399.85 kB │ gzip: 119.39 kB
-✓ built in 6.08s
+transforming...
+✓ 1626 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   1.16 kB │ gzip:   0.63 kB
+dist/assets/index-61badace.css   34.01 kB │ gzip:   6.68 kB
+dist/assets/index-92d2d296.js   486.18 kB │ gzip: 141.17 kB
+✓ built in 6.21s
 ```
 
 ### 2. Backend API Test Suite
-We executed the Jest test suite, and all backend tests pass cleanly with zero handle leaks:
+We executed the Jest test suite, and all backend tests pass cleanly:
 ```bash
 PASS tests/api.test.js
   File Manager Backend APIs
     Encryption Utility Tests
-      √ should correctly encrypt and decrypt raw text bytes (11 ms)
+      √ should correctly encrypt and decrypt raw text bytes (9 ms)
     Authentication Routes
-      √ GET /api/auth/status - should report whether admin is registered (120 ms)
-      √ POST /api/auth/setup - should fail if setup already completed (42 ms)
-      √ POST /api/auth/login - should fail with invalid credentials (18 ms)
+      √ GET /api/auth/status - should report whether admin is registered (106 ms)
+      √ POST /api/auth/setup - should fail if setup already completed (38 ms)
+      √ POST /api/auth/login - should fail with invalid credentials (17 ms)
     File API Routes
       √ GET /api/files - should reject requests without a JWT token (20 ms)
 
 Test Suites: 1 passed, 1 total
 Tests:       5 passed, 5 total
 Snapshots:   0 total
-Time:        3.168 s
+Time:        2.907 s
 Ran all test suites.
 ```

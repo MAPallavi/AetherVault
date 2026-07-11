@@ -6,6 +6,10 @@ const path = require('path');
 const app = express();
 
 // Middlewares
+const { securityHeaders, rateLimiter } = require('./middleware/security');
+app.use(securityHeaders);
+app.use(rateLimiter(150, 15 * 60 * 1000)); // 150 requests per 15 min window
+
 app.use(cors({
   origin: '*', // Allow all origins for the personal manager (secured by JWT)
   credentials: true
@@ -17,6 +21,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/files', require('./routes/files'));
 app.use('/api/logs', require('./routes/logs'));
+app.use('/api/admin', require('./routes/admin'));
 
 // Serve React build only in production
 if (process.env.NODE_ENV === 'production') {

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import MainLayout from "../layout/MainLayout";
 import { api } from "../utils/api";
 import SettingsSkeleton from "../components/settings/SettingsSkeleton";
+import { toast } from "react-hot-toast";
 import {
   User,
   Lock,
@@ -20,8 +21,10 @@ import {
   ToggleLeft,
   ToggleRight,
   Settings,
+  Heart,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import AdminHealth from "../components/settings/AdminHealth";
 
 export default function SettingsPage({
   currentTab,
@@ -93,6 +96,12 @@ export default function SettingsPage({
   const [prefRememberSidebar, setPrefRememberSidebar] = useState(() => {
     return localStorage.getItem("pref_remember_sidebar") === "true";
   });
+  const [highContrast, setHighContrast] = useState(() => {
+    return localStorage.getItem("aethervault_high_contrast") === "true";
+  });
+  const [focusOutline, setFocusOutline] = useState(() => {
+    return localStorage.getItem("aethervault_focus_outline") === "true";
+  });
 
   // Alerts
   const [successMsg, setSuccessMsg] = useState("");
@@ -103,6 +112,7 @@ export default function SettingsPage({
   const [storageStats, setStorageStats] = useState(null);
   const [largestFolders, setLargestFolders] = useState([]);
   const [largestFile, setLargestFile] = useState(null);
+  const [unusedFiles, setUnusedFiles] = useState([]);
 
   // Active Sessions mockup state
   const [sessions, setSessions] = useState([
@@ -147,6 +157,25 @@ export default function SettingsPage({
     }
   }, [theme]);
 
+  // Sync Accessibility configurations to DOM root
+  useEffect(() => {
+    if (highContrast) {
+      document.documentElement.classList.add("high-contrast");
+    } else {
+      document.documentElement.classList.remove("high-contrast");
+    }
+    localStorage.setItem("aethervault_high_contrast", highContrast);
+  }, [highContrast]);
+
+  useEffect(() => {
+    if (focusOutline) {
+      document.documentElement.classList.add("accessibility-focus");
+    } else {
+      document.documentElement.classList.remove("accessibility-focus");
+    }
+    localStorage.setItem("aethervault_focus_outline", focusOutline);
+  }, [focusOutline]);
+
   const loadSettingsData = async () => {
     setLoading(true);
     try {
@@ -179,6 +208,13 @@ export default function SettingsPage({
 
       setLargestFolders(calculatedFolders.sort((a, b) => b.size - a.size).slice(0, 3));
 
+      // Unused/Old files calculation (haven't been modified in the last 30 days)
+      const unused = fileList.filter((f) => {
+        const diff = new Date() - new Date(f.updatedAt);
+        return diff > 30 * 24 * 60 * 60 * 1000;
+      });
+      setUnusedFiles(unused.sort((a, b) => b.size - a.size).slice(0, 5));
+
       // Largest File listing
       if (fileList.length > 0) {
         const sortedFiles = [...fileList].sort((a, b) => b.size - a.size);
@@ -195,12 +231,38 @@ export default function SettingsPage({
   const handleSaveProfile = (e) => {
     e.preventDefault();
     setSuccessMsg("");
+    setErrorMsg("");
+
+    const trimmedName = profileDisplayName.trim();
+    const trimmedEmail = profileEmail.trim();
+
+    if (!trimmedName) {
+      setErrorMsg("Display name cannot be empty.");
+      toast.error("Display name cannot be empty.");
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (trimmedEmail && !emailRegex.test(trimmedEmail)) {
+      setErrorMsg("Please enter a valid email address.");
+      toast.error("Please enter a valid email address.");
+      return;
+    }
+
     setUpdating(true);
-    setTimeout(() => {
-      localStorage.setItem("aethervault_display_name", profileDisplayName);
-      localStorage.setItem("aethervault_email", profileEmail);
+    setTimeout(async () => {
+      localStorage.setItem("aethervault_display_name", trimmedName);
+      localStorage.setItem("aethervault_email", trimmedEmail);
+      setProfileDisplayName(trimmedName);
+      setProfileEmail(trimmedEmail);
       setSuccessMsg("Profile information saved successfully.");
+      toast.success("Profile information saved successfully.");
       setUpdating(false);
+      try {
+        await api.logSettingsChange(`Profile details updated (Display Name: "${trimmedName}", Email: "${trimmedEmail}")`);
+      } catch (err) {
+        console.error(err);
+      }
     }, 900);
   };
 
@@ -211,13 +273,18 @@ export default function SettingsPage({
   };
 
   // Section 2: Themes Toggling
-  const handleThemeChange = (newTheme) => {
+  const handleThemeChange = async (newTheme) => {
     setTheme(newTheme);
     localStorage.setItem("aethervault_theme", newTheme);
+    try {
+      await api.logSettingsChange(`UI Theme updated to: ${newTheme}`);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   // Section 3: Password Update
-  const handlePasswordUpdate = (e) => {
+  const handlePasswordUpdate = async (e) => {
     e.preventDefault();
     setSuccessMsg("");
     setErrorMsg("");
@@ -225,22 +292,35 @@ export default function SettingsPage({
     const checklist = getPasswordChecks(newPassword);
     if (!Object.values(checklist).every((met) => met)) {
       setErrorMsg("Password strength validation checks failed.");
+      toast.error("Password strength validation checks failed.");
       return;
     }
 
     if (newPassword !== confirmPassword) {
       setErrorMsg("Confirm passwords do not match.");
+      toast.error("Confirm passwords do not match.");
       return;
     }
 
     setUpdating(true);
-    setTimeout(() => {
+    const toastId = toast.loading("Updating password credentials...");
+    try {
+      if (!navigator.onLine) {
+        throw new Error("You are currently offline. Please check connectivity and retry.");
+      }
+      await api.changePassword(currentPassword, newPassword);
       setSuccessMsg("Security credentials saved successfully.");
-      setUpdating(false);
+      toast.success("Security credentials saved successfully.", { id: toastId });
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-    }, 1100);
+    } catch (err) {
+      const errMsg = err.message || "Failed to update security credentials.";
+      setErrorMsg(errMsg);
+      toast.error(errMsg, { id: toastId });
+    } finally {
+      setUpdating(false);
+    }
   };
 
   const getPasswordChecks = (pwd) => {
@@ -313,6 +393,74 @@ export default function SettingsPage({
     }
   };
 
+  const handleExportConfig = () => {
+    const config = {
+      theme: localStorage.getItem("aethervault_theme") || "dark",
+      accent: localStorage.getItem("aethervault_accent") || "Purple",
+      viewMode: localStorage.getItem("aethervault_view_mode") || "grid",
+      sort: localStorage.getItem("pref_sort") || "name",
+      autoRefresh: localStorage.getItem("pref_autorefresh") !== "false",
+      rememberSidebar: localStorage.getItem("pref_remember_sidebar") === "true",
+      highContrast: localStorage.getItem("aethervault_high_contrast") === "true",
+      focusOutline: localStorage.getItem("aethervault_focus_outline") === "true"
+    };
+    const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(config, null, 2))}`;
+    const link = document.createElement("a");
+    link.setAttribute("href", jsonString);
+    link.setAttribute("download", "aethervault_config.json");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setSuccessMsg("Configuration exported successfully.");
+  };
+
+  const handleImportConfig = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const config = JSON.parse(event.target.result);
+        if (config.theme) {
+          setTheme(config.theme);
+          localStorage.setItem("aethervault_theme", config.theme);
+        }
+        if (config.accent) {
+          setAccent(config.accent);
+          localStorage.setItem("aethervault_accent", config.accent);
+        }
+        if (config.viewMode) {
+          setPrefView(config.viewMode);
+          localStorage.setItem("aethervault_view_mode", config.viewMode);
+        }
+        if (config.sort) {
+          setPrefSort(config.sort);
+          localStorage.setItem("pref_sort", config.sort);
+        }
+        if (config.autoRefresh !== undefined) {
+          setPrefAutoRefresh(config.autoRefresh);
+          localStorage.setItem("pref_autorefresh", String(config.autoRefresh));
+        }
+        if (config.rememberSidebar !== undefined) {
+          setPrefRememberSidebar(config.rememberSidebar);
+          localStorage.setItem("pref_remember_sidebar", String(config.rememberSidebar));
+        }
+        if (config.highContrast !== undefined) {
+          setHighContrast(config.highContrast);
+          localStorage.setItem("aethervault_high_contrast", String(config.highContrast));
+        }
+        if (config.focusOutline !== undefined) {
+          setFocusOutline(config.focusOutline);
+          localStorage.setItem("aethervault_focus_outline", String(config.focusOutline));
+        }
+        setSuccessMsg("Configuration imported successfully. Reloading theme settings...");
+      } catch (err) {
+        setErrorMsg("Failed to parse config file: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const formatSize = (bytes) => {
     if (!bytes) return "0 Bytes";
     const k = 1024;
@@ -347,11 +495,12 @@ export default function SettingsPage({
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "storage", label: "Storage details", icon: HardDrive },
     { id: "preferences", label: "Preferences", icon: Settings },
+    { id: "health", label: "System Health", icon: Heart },
     { id: "about", label: "About AetherVault", icon: Info },
   ];
 
-  const CAPACITY = 2 * 1024 * 1024 * 1024; // 2GB
-  const usedSize = storageStats?.totalSize || 0;
+  const CAPACITY = storageStats?.storageLimit || 10 * 1024 * 1024 * 1024; // Use user limit or default 10GB
+  const usedSize = storageStats?.storageUsed || storageStats?.totalSize || 0;
   const freeSize = Math.max(CAPACITY - usedSize, 0);
   const percentUsed = Math.min((usedSize / CAPACITY) * 100, 100);
 
@@ -665,6 +814,20 @@ export default function SettingsPage({
 
                       {/* Password check validations */}
                       {newPassword && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "6px", margin: "10px 0" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                            <span style={{ color: "var(--text-secondary)" }}>Password Strength:</span>
+                            <strong style={{ color: Object.values(checks).filter(Boolean).length >= 5 ? "var(--success)" : Object.values(checks).filter(Boolean).length >= 3 ? "var(--warning)" : "var(--danger)" }}>
+                              {Object.values(checks).filter(Boolean).length >= 5 ? "Strong" : Object.values(checks).filter(Boolean).length >= 3 ? "Medium" : "Weak"}
+                            </strong>
+                          </div>
+                          <div style={{ height: "4px", borderRadius: "2px", background: "rgba(255,255,255,0.05)", overflow: "hidden" }}>
+                            <div style={{ height: "100%", background: Object.values(checks).filter(Boolean).length >= 5 ? "var(--success)" : Object.values(checks).filter(Boolean).length >= 3 ? "var(--warning)" : "var(--danger)", width: `${(Object.values(checks).filter(Boolean).length / 5) * 100}%`, transition: "all 0.3s ease" }}></div>
+                          </div>
+                        </div>
+                      )}
+
+                      {newPassword && (
                         <div className="password-check-list">
                           <div className={`password-check-item ${checks.minLength ? "met" : "unmet"}`}>
                             <Check size={12} /> <span>Min 8 characters</span>
@@ -939,6 +1102,27 @@ export default function SettingsPage({
                     </div>
                   </div>
 
+                  {/* Category Breakdown Progress Bars */}
+                  {storageStats?.categories && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "10px", padding: "16px", background: "rgba(255, 255, 255, 0.02)", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.04)" }}>
+                      <h4 style={{ margin: "0 0 6px 0", color: "#fff", fontSize: "0.95rem" }}>Category Space Utilization</h4>
+                      {Object.entries(storageStats.categories).map(([category, stats]) => {
+                        const catPercent = Math.min((stats.size / CAPACITY) * 100, 100);
+                        return (
+                          <div key={category} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                              <span style={{ color: "#fff", textTransform: "capitalize" }}>{category} ({stats.count} files)</span>
+                              <span style={{ color: "var(--text-secondary)" }}>{formatSize(stats.size)}</span>
+                            </div>
+                            <div style={{ height: "4px", background: "rgba(255,255,255,0.06)", borderRadius: "2px", overflow: "hidden" }}>
+                              <div style={{ height: "100%", width: `${catPercent}%`, background: "var(--primary)" }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                     <h4 style={{ margin: "6px 0", color: "#fff", fontSize: "0.95rem" }}>Capacity Indicators</h4>
 
@@ -990,6 +1174,27 @@ export default function SettingsPage({
                       )}
                     </div>
                   </div>
+
+                  {/* Unused / Old Files list */}
+                  {unusedFiles.length > 0 && (
+                    <div>
+                      <h4 style={{ margin: "14px 0", color: "#fff", fontSize: "0.95rem" }}>Unused Files (No edits in last 30 days)</h4>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                        {unusedFiles.map(file => (
+                          <div key={file._id} className="folder-row" style={{ cursor: "default" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                              <FileText size={16} color="var(--primary)" />
+                              <span style={{ fontSize: "0.85rem", fontWeight: "600", color: "#fff" }}>{file.name}</span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>{formatSize(file.size)}</span>
+                              <span style={{ fontSize: "0.7rem", color: "var(--warning)", background: "rgba(234, 88, 12, 0.1)", padding: "2px 6px", borderRadius: "4px" }}>Unused</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </motion.div>
               )}
 
@@ -1076,6 +1281,55 @@ export default function SettingsPage({
                         className="checkbox"
                       />
                     </div>
+
+                    <div className="switch-row">
+                      <div>
+                        <h4 style={{ margin: 0, color: "#fff", fontSize: "0.9rem" }}>High Contrast Mode</h4>
+                        <p style={{ margin: "2px 0 0 0", fontSize: "0.75rem", color: "var(--text-secondary)" }}>Increases contrast across elements for better accessibility.</p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={highContrast}
+                        onChange={(e) => setHighContrast(e.target.checked)}
+                        className="checkbox"
+                      />
+                    </div>
+
+                    <div className="switch-row">
+                      <div>
+                        <h4 style={{ margin: 0, color: "#fff", fontSize: "0.9rem" }}>Focus Outline Assistant</h4>
+                        <p style={{ margin: "2px 0 0 0", fontSize: "0.75rem", color: "var(--text-secondary)" }}>Displays sharp visual borders on active inputs for keyboard navigation.</p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={focusOutline}
+                        onChange={(e) => setFocusOutline(e.target.checked)}
+                        className="checkbox"
+                      />
+                    </div>
+
+                    <div style={{ height: "1px", background: "rgba(255,255,255,0.05)", margin: "10px 0" }}></div>
+
+                    <div>
+                      <h4 style={{ margin: "0 0 8px 0", color: "#fff", fontSize: "0.9rem" }}>Backup / Restore Theme Configuration</h4>
+                      <p style={{ margin: "0 0 10px 0", fontSize: "0.75rem", color: "var(--text-secondary)" }}>Export or import current visual theme and accent settings to a JSON file.</p>
+                      
+                      <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                        <button onClick={handleExportConfig} className="btn btn-secondary" style={{ fontSize: "0.78rem", padding: "6px 12px" }}>
+                          Export Config (JSON)
+                        </button>
+                        
+                        <label className="btn btn-primary" style={{ fontSize: "0.78rem", padding: "6px 12px", cursor: "pointer", margin: 0 }}>
+                          <span>Import Config (JSON)</span>
+                          <input 
+                            type="file" 
+                            accept=".json" 
+                            onChange={handleImportConfig} 
+                            style={{ display: "none" }} 
+                          />
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </motion.div>
               )}
@@ -1143,6 +1397,20 @@ export default function SettingsPage({
                     <Github size={16} />
                     <span>View GitHub Repository</span>
                   </a>
+                </motion.div>
+              )}
+
+              {/* TAB 9: SYSTEM HEALTH */}
+              {activeSubTab === "health" && (
+                <motion.div
+                  key="health"
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -15 }}
+                  transition={{ duration: 0.2 }}
+                  className="settings-section-container"
+                >
+                  <AdminHealth />
                 </motion.div>
               )}
             </AnimatePresence>

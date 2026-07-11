@@ -11,7 +11,18 @@ export default function FilterBar({
   viewMode,
   setViewMode
 }) {
-  const fileTypes = ["ALL", "IMAGES", "VIDEOS", "AUDIO", "DOCUMENTS", "ARCHIVES"];
+  const fileTypes = [
+    "ALL",
+    "FAVORITES",
+    "TAGGED",
+    "IMAGES",
+    "DOCUMENTS",
+    "VIDEOS",
+    "AUDIO",
+    "PDF",
+    "ARCHIVES",
+    "FOLDERS"
+  ];
   const sortOptions = [
     { value: "name", label: "Name" },
     { value: "size", label: "Size" },
@@ -30,7 +41,17 @@ export default function FilterBar({
         >
           {fileTypes.map(type => (
             <option key={type} value={type} style={{ background: "#1a1d24" }}>
-              {type === "ALL" ? "All Formats" : type}
+              {type === "ALL" ? "All Files" : 
+               type === "FAVORITES" ? "Favorites" : 
+               type === "TAGGED" ? "Tagged" : 
+               type === "IMAGES" ? "Images" : 
+               type === "DOCUMENTS" ? "Documents" : 
+               type === "VIDEOS" ? "Videos" : 
+               type === "AUDIO" ? "Audio" : 
+               type === "PDF" ? "PDF" : 
+               type === "ARCHIVES" ? "Archives" : 
+               type === "FOLDERS" ? "Folders" : 
+               type}
             </option>
           ))}
         </select>

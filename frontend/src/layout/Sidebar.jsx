@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../utils/api";
-import { FaHome, FaFolder, FaTrash, FaChartPie, FaCog, FaSignOutAlt, FaShieldAlt } from "react-icons/fa";
+import { FaHome, FaFolder, FaTrash, FaChartPie, FaCog, FaSignOutAlt, FaShieldAlt, FaChartLine } from "react-icons/fa";
 import { HardDrive } from "lucide-react";
 import "../styles/sidebar.css";
 
@@ -37,6 +37,7 @@ export default function Sidebar({ currentTab, setCurrentTab, username, onLogout,
   const menuItems = [
     { id: "dashboard", name: "Dashboard", icon: FaHome },
     { id: "files", name: "My Files", icon: FaFolder },
+    { id: "insights", name: "Insights", icon: FaChartLine },
     { id: "trash", name: "Recycle Bin", icon: FaTrash },
     { id: "logs", name: "Activity Logs", icon: FaChartPie },
     { id: "settings", name: "Settings", icon: FaCog },

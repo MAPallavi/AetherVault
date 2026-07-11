@@ -43,6 +43,52 @@ const fileSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
+  ownerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  },
+  lastModifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  },
+  permissions: {
+    type: String,
+    default: "Owner-RW",
+  },
+  visibility: {
+    type: String,
+    enum: ['Private', 'Shared', 'Public'],
+    default: 'Private',
+  },
+  isFavorite: {
+    type: Boolean,
+    default: false,
+  },
+  tags: {
+    type: [String],
+    default: [],
+  },
+  comments: [{
+    username: { type: String, required: true },
+    comment: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now },
+  }],
+  sharedLinks: [{
+    passcode: { type: String, default: "" },
+    expiryDate: { type: Date, default: null },
+    urlCode: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now },
+  }],
+  versions: [{
+    size: { type: Number, required: true },
+    physicalPath: { type: String, required: true },
+    iv: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now },
+  }],
 }, {
   timestamps: true,
 });

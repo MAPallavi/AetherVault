@@ -28,6 +28,8 @@ export default function Navbar({
   const [results, setResults] = useState({ files: [], trash: [], logs: [] });
   const [searching, setSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [showNotif, setShowNotif] = useState(false);
 
   const dropdownRef = useRef(null);
 
@@ -40,6 +42,22 @@ export default function Navbar({
     };
     window.addEventListener("mousedown", clickOutside);
     return () => window.removeEventListener("mousedown", clickOutside);
+  }, []);
+
+  // Fetch recent logs for notifications dropdown
+  useEffect(() => {
+    const fetchNotifs = async () => {
+      try {
+        const logList = await api.getLogs();
+        const filtered = logList.filter(l => ["UPLOAD", "DELETE", "RENAME"].includes(l.action)).slice(0, 5);
+        setNotifications(filtered);
+      } catch (err) {
+        console.error("Notifications fetch failed", err);
+      }
+    };
+    fetchNotifs();
+    const interval = setInterval(fetchNotifs, 12000);
+    return () => clearInterval(interval);
   }, []);
 
   // Debounced query triggering
@@ -268,10 +286,54 @@ export default function Navbar({
       {/* Right control utilities */}
       <div className="navbar-right">
         {/* Notification Bell */}
-        <button className="navbar-bell-btn" title="Notifications">
-          <Bell size={18} />
-          <span className="navbar-bell-badge"></span>
-        </button>
+        <div style={{ position: "relative" }}>
+          <button 
+            onClick={() => setShowNotif(!showNotif)} 
+            className="navbar-bell-btn" 
+            title="Notifications"
+            style={{ position: "relative", cursor: "pointer" }}
+          >
+            <Bell size={18} />
+            {notifications.length > 0 && <span className="navbar-bell-badge" style={{ position: "absolute", top: "2px", right: "2px", width: "8px", height: "8px", background: "var(--danger)", borderRadius: "50%" }}></span>}
+          </button>
+
+          {showNotif && (
+            <div className="navbar-search-dropdown glass" style={{ right: 0, left: "auto", width: "280px", padding: "10px 0", zIndex: 10005 }}>
+              <div style={{ padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "0.75rem", fontWeight: "700", textTransform: "uppercase", color: "var(--text-secondary)" }}>Activity Notifications</span>
+                <button 
+                  onClick={() => setNotifications([])}
+                  style={{ background: "transparent", border: "none", color: "var(--primary)", fontSize: "0.7rem", cursor: "pointer" }}
+                >
+                  Clear
+                </button>
+              </div>
+              {notifications.length === 0 ? (
+                <div style={{ padding: "16px 12px", textAlign: "center", fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                  No new notifications.
+                </div>
+              ) : (
+                notifications.map(n => (
+                  <div 
+                    key={n._id} 
+                    onClick={() => {
+                      setCurrentTab("logs");
+                      setShowNotif(false);
+                    }}
+                    style={{ padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,0.03)", cursor: "pointer", display: "flex", flexDirection: "column", gap: "2px" }}
+                    className="navbar-search-item"
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: "0.7rem", fontWeight: "700", color: n.action === "DELETE" ? "var(--danger)" : "var(--primary-light)" }}>{n.action}</span>
+                      <span style={{ fontSize: "0.65rem", color: "var(--text-secondary)" }}>{new Date(n.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                    <span style={{ fontSize: "0.75rem", color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.details}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
 
         {/* User Profile Avatar info */}
         <div className="navbar-user-info" onClick={() => setCurrentTab("settings")}>

@@ -7,6 +7,8 @@ export default function PreviewModal({ file, onClose, onActionSuccess }) {
   const [textContents, setTextContents] = useState("");
   const [loadingText, setLoadingText] = useState(false);
   const [zoomScale, setZoomScale] = useState(1);
+  const [rotation, setRotation] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [fileName, setFileName] = useState(file.name);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(file.name);
@@ -19,8 +21,10 @@ export default function PreviewModal({ file, onClose, onActionSuccess }) {
   const isVideo = mime.startsWith("video/");
   const isAudio = mime.startsWith("audio/");
   const isPdf = mime === "application/pdf";
+  const isMarkdown = file.name.toLowerCase().endsWith(".md");
   const isText =
     mime.startsWith("text/") ||
+    isMarkdown ||
     mime === "application/json" ||
     mime === "application/javascript" ||
     mime === "application/xml";
@@ -85,6 +89,25 @@ export default function PreviewModal({ file, onClose, onActionSuccess }) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
   };
 
+  const parseMarkdown = (md) => {
+    let html = md
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+    html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+    html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+    html = html.replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>');
+    html = html.replace(/\*(.*)\*/gim, '<em>$1</em>');
+    html = html.replace(/^\> (.*$)/gim, '<blockquote>$1</blockquote>');
+    html = html.replace(/\`\`\`([\s\S]*?)\`\`\`/gim, '<pre style="background: rgba(0,0,0,0.4); padding: 10px; border-radius: 6px; overflow-x: auto;"><code>$1</code></pre>');
+    html = html.replace(/\`(.*?)\`/gim, '<code style="background: rgba(255,255,255,0.1); padding: 2px 4px; border-radius: 4px;">$1</code>');
+    html = html.replace(/^\- (.*$)/gim, '<ul><li>$1</li></ul>').replace(/<\/ul>\s*<ul>/g, "");
+    html = html.replace(/^\* (.*$)/gim, '<ul><li>$1</li></ul>').replace(/<\/ul>\s*<ul>/g, "");
+    html = html.replace(/\n\n/g, '<br/>');
+    return html;
+  };
+
   const renderContent = () => {
     if (isImage) {
       return (
@@ -94,7 +117,7 @@ export default function PreviewModal({ file, onClose, onActionSuccess }) {
             alt={fileName}
             style={{
               ...styles.imagePreview,
-              transform: `scale(${zoomScale})`,
+              transform: `scale(${zoomScale}) rotate(${rotation}deg)`,
               transition: "transform 0.1s ease",
             }}
           />
@@ -127,6 +150,19 @@ export default function PreviewModal({ file, onClose, onActionSuccess }) {
         <div style={styles.pdfContainer}>
           <iframe src={previewUrl} title={fileName} style={styles.pdfIframe}></iframe>
         </div>
+      );
+    }
+
+    if (isMarkdown) {
+      if (loadingText) {
+        return (
+          <div style={styles.centerLoading}>
+            <Loader2 className="spinner" size={32} color="#7c3aed" />
+          </div>
+        );
+      }
+      return (
+        <div style={{ ...styles.textContainer, padding: "24px", color: "#e5e7eb", lineHeight: "1.6", overflowY: "auto", height: "100%" }} dangerouslySetInnerHTML={{ __html: parseMarkdown(textContents) }} />
       );
     }
 
@@ -186,26 +222,51 @@ export default function PreviewModal({ file, onClose, onActionSuccess }) {
         <div style={styles.mainContainer}>
           {/* Left Canvas Panel */}
           <div style={styles.leftPane}>
-            {isImage && (
+            {(isImage || isPdf || isVideo) && (
               <div style={styles.zoomBar}>
+                {isImage && (
+                  <>
+                    <button
+                      onClick={() => setZoomScale((s) => Math.max(s - 0.25, 0.5))}
+                      className="btn-gray"
+                      style={styles.zoomBtn}
+                    >
+                      -
+                    </button>
+                    <span style={{ fontSize: "0.8rem", color: "#fff", fontWeight: "600" }}>
+                      {Math.round(zoomScale * 100)}%
+                    </span>
+                    <button
+                      onClick={() => setZoomScale((s) => Math.min(s + 0.25, 3))}
+                      className="btn-gray"
+                      style={styles.zoomBtn}
+                    >
+                      +
+                    </button>
+                    <button
+                      onClick={() => setRotation((r) => (r + 90) % 360)}
+                      className="btn-gray"
+                      style={styles.zoomBtn}
+                    >
+                      Rotate
+                    </button>
+                  </>
+                )}
                 <button
-                  onClick={() => setZoomScale((s) => Math.max(s - 0.25, 0.5))}
+                  onClick={() => setIsFullscreen(true)}
                   className="btn-gray"
                   style={styles.zoomBtn}
                 >
-                  -
+                  Fullscreen
                 </button>
-                <span style={{ fontSize: "0.8rem", color: "#fff", fontWeight: "600" }}>
-                  {Math.round(zoomScale * 100)}%
-                </span>
-                <button
-                  onClick={() => setZoomScale((s) => Math.min(s + 0.25, 3))}
-                  className="btn-gray"
+                <button 
+                  onClick={() => {
+                    setZoomScale(1);
+                    setRotation(0);
+                  }} 
+                  className="btn-gray" 
                   style={styles.zoomBtn}
                 >
-                  +
-                </button>
-                <button onClick={() => setZoomScale(1)} className="btn-gray" style={styles.zoomBtn}>
                   Reset
                 </button>
               </div>
@@ -300,6 +361,47 @@ export default function PreviewModal({ file, onClose, onActionSuccess }) {
           </div>
         </div>
       </div>
+
+      {isFullscreen && (
+        <div 
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            background: "#000",
+            zIndex: 10000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "zoom-out"
+          }}
+          onClick={() => setIsFullscreen(false)}
+        >
+          {isImage ? (
+            <img 
+              src={previewUrl} 
+              alt={fileName} 
+              style={{ 
+                maxHeight: "100vh", 
+                maxWidth: "100vw", 
+                transform: `rotate(${rotation}deg)` 
+              }} 
+            />
+          ) : isVideo ? (
+            <video src={previewUrl} controls autoPlay style={{ maxHeight: "100vh", maxWidth: "100vw" }} />
+          ) : (
+            <iframe src={previewUrl} title={fileName} style={{ width: "100%", height: "100%", border: "none" }} />
+          )}
+          <button 
+            onClick={() => setIsFullscreen(false)} 
+            style={{ position: "absolute", top: "20px", right: "20px", background: "rgba(0,0,0,0.5)", border: "none", color: "#fff", padding: "10px 15px", borderRadius: "8px", cursor: "pointer" }}
+          >
+            Exit Fullscreen
+          </button>
+        </div>
+      )}
     </div>
   );
 }

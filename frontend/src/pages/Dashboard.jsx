@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { api } from "../utils/api";
 import MainLayout from "../layout/MainLayout";
+import { toast } from "react-hot-toast";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
 import StatsCards from "../components/dashboard/StatsCards";
 import StorageChart from "../components/dashboard/StorageChart";
@@ -35,6 +36,107 @@ export default function Dashboard({
 
   const fileInputRef = useRef(null);
 
+  // Safely extract calculations data with defaults while data is loading
+  const { totalSize, fileCount, folderCount, trashCount, categories } = data || {
+    totalSize: 0,
+    fileCount: 0,
+    folderCount: 0,
+    trashCount: 0,
+    categories: {
+      images: { count: 0, size: 0 },
+      video: { count: 0, size: 0 },
+      audio: { count: 0, size: 0 },
+      documents: { count: 0, size: 0 },
+      archives: { count: 0, size: 0 },
+      others: { count: 0, size: 0 },
+    }
+  };
+
+  const categoriesList = useMemo(() => {
+    return [
+      { label: "Images", color: "#e040fb", ...categories.images },
+      { label: "Videos", color: "#ff5252", ...categories.video },
+      { label: "Audio", color: "#ffd740", ...categories.audio },
+      { label: "Documents", color: "#18ffff", ...categories.documents },
+      { label: "Archives", color: "#69f0ae", ...categories.archives },
+      { label: "Others", color: "#b0bec5", ...categories.others },
+    ].filter((cat) => cat.count > 0);
+  }, [categories]);
+
+  // Donut segment calculation
+  const donutSegments = useMemo(() => {
+    let cumAngle = 0;
+    return categoriesList.map((cat) => {
+      const sizeRatio = totalSize > 0 ? cat.size / totalSize : 0;
+      const angle = sizeRatio * 360;
+      const startAngle = cumAngle;
+      const endAngle = cumAngle + angle;
+      cumAngle = endAngle;
+
+      const polarToCartesian = (centerX, centerY, radius, angleInDegrees) => {
+        const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180.0;
+        return {
+          x: centerX + radius * Math.cos(angleInRadians),
+          y: centerY + radius * Math.sin(angleInRadians),
+        };
+      };
+
+      const describeArc = (x, y, radius, startAngle, endAngle) => {
+        const start = polarToCartesian(x, y, radius, endAngle);
+        const end = polarToCartesian(x, y, radius, startAngle);
+        const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+        return [
+          "M", start.x, start.y,
+          "A", radius, radius, 0, largeArcFlag, 0, end.x, end.y,
+        ].join(" ");
+      };
+
+      return {
+        path: describeArc(100, 100, 70, startAngle, endAngle),
+        color: cat.color,
+        label: cat.label,
+        percent: Math.round(sizeRatio * 100),
+      };
+    });
+  }, [categoriesList, totalSize]);
+
+  // Extract size / time ranking segments client-side
+  const largestFiles = useMemo(() => [...allActiveFiles].sort((a, b) => b.size - a.size).slice(0, 5), [allActiveFiles]);
+  const recentUploads = useMemo(() => [...allActiveFiles].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5), [allActiveFiles]);
+
+  // Calculate files uploaded in the last 24 hours
+  const uploadsToday = useMemo(() => allActiveFiles.filter(
+    (f) => new Date() - new Date(f.createdAt) < 24 * 60 * 60 * 1000
+  ).length, [allActiveFiles]);
+
+  const storageTrendData = useMemo(() => {
+    if (!allActiveFiles || allActiveFiles.length === 0) return [];
+
+    // Sort files by creation date
+    const sorted = [...allActiveFiles].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+    // Group sizes cumulatively
+    let cumulative = 0;
+    const points = sorted.map(file => {
+      cumulative += file.size;
+      return {
+        date: new Date(file.createdAt).toLocaleDateString([], { month: "short", day: "numeric" }),
+        size: cumulative
+      };
+    });
+
+    // Sub-sample or limit to last 7 data points to fit the graph cleanly
+    if (points.length <= 7) return points;
+
+    // Pick 7 evenly spaced indexes
+    const step = (points.length - 1) / 6;
+    const sampled = [];
+    for (let i = 0; i < 7; i++) {
+      sampled.push(points[Math.round(i * step)]);
+    }
+    return sampled;
+  }, [allActiveFiles]);
+
   useEffect(() => {
     fetchDashboardData();
   }, [refreshTrigger, localRefresh]);
@@ -51,7 +153,7 @@ export default function Dashboard({
         handleDashboardCreateFolder();
       }
     };
-    
+
     window.addEventListener("aethervault_shortcut_upload", handleShortcutUpload);
     window.addEventListener("aethervault_shortcut_new_folder", handleShortcutNewFolder);
     return () => {
@@ -83,6 +185,71 @@ export default function Dashboard({
 
   const triggerLocalRefresh = () => {
     setLocalRefresh((prev) => prev + 1);
+  };
+
+  const handleExportCSV = () => {
+    if (!allActiveFiles || allActiveFiles.length === 0) {
+      toast.error("No files in vault to export.");
+      return;
+    }
+    const headers = ["ID", "Name", "MimeType", "Size (bytes)", "Is Favorite", "Tags", "Comments Count", "Versions Count", "Created At", "Updated At"];
+    const rows = allActiveFiles.map(f => [
+      f._id,
+      `"${f.name.replace(/"/g, '""')}"`,
+      f.mimeType || (f.isFolder ? "Folder" : "application/octet-stream"),
+      f.size,
+      f.isFavorite ? "Yes" : "No",
+      `"${(f.tags || []).join(", ").replace(/"/g, '""')}"`,
+      (f.comments || []).length,
+      (f.versions || []).length,
+      f.createdAt,
+      f.updatedAt
+    ]);
+    const csvContent = "data:text/csv;charset=utf-8,"
+      + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+
+    const pad = (n) => String(n).padStart(2, "0");
+    const d = new Date();
+    const ts = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `aethervault_export_${ts}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("CSV report downloaded!");
+  };
+
+  const handleExportJSON = () => {
+    if (!allActiveFiles || allActiveFiles.length === 0) {
+      toast.error("No files in vault to export.");
+      return;
+    }
+    const pad = (n) => String(n).padStart(2, "0");
+    const d = new Date();
+    const ts = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      vaultSummary: {
+        totalSize,
+        fileCount,
+        folderCount,
+        trashCount,
+        favoritesCount: allActiveFiles.filter(f => f.isFavorite).length,
+      },
+      files: allActiveFiles
+    };
+    const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(payload, null, 2))}`;
+    const link = document.createElement("a");
+    link.setAttribute("href", jsonString);
+    link.setAttribute("download", `aethervault_export_${ts}.json`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("JSON report downloaded!");
   };
 
   // Direct Upload from Dashboard Actions
@@ -165,89 +332,6 @@ export default function Dashboard({
     );
   }
 
-  const { totalSize, fileCount, folderCount, trashCount, categories } = data;
-
-  const categoriesList = [
-    { label: "Images", color: "#e040fb", ...categories.images },
-    { label: "Videos", color: "#ff5252", ...categories.video },
-    { label: "Audio", color: "#ffd740", ...categories.audio },
-    { label: "Documents", color: "#18ffff", ...categories.documents },
-    { label: "Archives", color: "#69f0ae", ...categories.archives },
-    { label: "Others", color: "#b0bec5", ...categories.others },
-  ].filter((cat) => cat.count > 0);
-
-  // Donut segment calculation
-  let cumAngle = 0;
-  const donutSegments = categoriesList.map((cat) => {
-    const sizeRatio = totalSize > 0 ? cat.size / totalSize : 0;
-    const angle = sizeRatio * 360;
-    const startAngle = cumAngle;
-    const endAngle = cumAngle + angle;
-    cumAngle = endAngle;
-
-    const polarToCartesian = (centerX, centerY, radius, angleInDegrees) => {
-      const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180.0;
-      return {
-        x: centerX + radius * Math.cos(angleInRadians),
-        y: centerY + radius * Math.sin(angleInRadians),
-      };
-    };
-
-    const describeArc = (x, y, radius, startAngle, endAngle) => {
-      const start = polarToCartesian(x, y, radius, endAngle);
-      const end = polarToCartesian(x, y, radius, startAngle);
-      const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
-      return [
-        "M", start.x, start.y,
-        "A", radius, radius, 0, largeArcFlag, 0, end.x, end.y,
-      ].join(" ");
-    };
-
-    return {
-      path: describeArc(100, 100, 70, startAngle, endAngle),
-      color: cat.color,
-      label: cat.label,
-      percent: Math.round(sizeRatio * 100),
-    };
-  });
-
-  // Extract size / time ranking segments client-side
-  const largestFiles = [...allActiveFiles].sort((a, b) => b.size - a.size).slice(0, 5);
-  const recentUploads = [...allActiveFiles].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
-  
-  // Calculate files uploaded in the last 24 hours
-  const uploadsToday = allActiveFiles.filter(
-     (f) => new Date() - new Date(f.createdAt) < 24 * 60 * 60 * 1000
-  ).length;
-
-  const getStorageTrendData = () => {
-    if (!allActiveFiles || allActiveFiles.length === 0) return [];
-    
-    // Sort files by creation date
-    const sorted = [...allActiveFiles].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-    
-    // Group sizes cumulatively
-    let cumulative = 0;
-    const points = sorted.map(file => {
-      cumulative += file.size;
-      return {
-        date: new Date(file.createdAt).toLocaleDateString([], { month: "short", day: "numeric" }),
-        size: cumulative
-      };
-    });
-
-    // Sub-sample or limit to last 7 data points to fit the graph cleanly
-    if (points.length <= 7) return points;
-    
-    // Pick 7 evenly spaced indexes
-    const step = (points.length - 1) / 6;
-    const sampled = [];
-    for (let i = 0; i < 7; i++) {
-      sampled.push(points[Math.round(i * step)]);
-    }
-    return sampled;
-  };
-
   const headerProps = {
     username,
     totalSize,
@@ -304,6 +388,8 @@ export default function Dashboard({
               onUploadClick={() => fileInputRef.current.click()}
               onCreateFolderClick={handleDashboardCreateFolder}
               onRefreshClick={triggerLocalRefresh}
+              onExportCSV={handleExportCSV}
+              onExportJSON={handleExportJSON}
             />
           </div>
         </div>
@@ -332,7 +418,7 @@ export default function Dashboard({
               <h3 style={{ fontSize: "0.95rem", fontWeight: "700", color: "#fff", margin: 0 }}>Storage Usage Growth Trend</h3>
               {/* Storage Trend Area Chart SVG */}
               <div style={{ flexGrow: 1, position: "relative", minHeight: "150px" }}>
-                {getStorageTrendData().length < 2 ? (
+                {storageTrendData.length < 2 ? (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-secondary)", fontSize: "0.85rem" }}>
                     Not enough uploads to chart growth trends.
                   </div>
@@ -344,17 +430,17 @@ export default function Dashboard({
                         <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.00" />
                       </linearGradient>
                     </defs>
-                    
+
                     {/* SVG Line / Area */}
                     {(() => {
-                      const trend = getStorageTrendData();
+                      const trend = storageTrendData;
                       const maxVal = Math.max(...trend.map(t => t.size));
                       const getX = (index) => (index / (trend.length - 1)) * 500;
                       const getY = (val) => 140 - (maxVal > 0 ? (val / maxVal) * 110 : 0);
-                      
+
                       const pointsStr = trend.map((t, idx) => `${getX(idx)},${getY(t.size)}`).join(" ");
                       const areaStr = `0,140 ${pointsStr} 500,140`;
-                      
+
                       return (
                         <>
                           {/* Grid Lines */}
@@ -364,10 +450,10 @@ export default function Dashboard({
 
                           {/* Gradient Area Fill */}
                           <polygon points={areaStr} fill="url(#trendGrad)" />
-                          
+
                           {/* Main Line Path */}
                           <polyline points={pointsStr} fill="none" stroke="var(--primary)" strokeWidth="2.5" />
-                          
+
                           {/* Dot markers */}
                           {trend.map((t, idx) => (
                             <g key={idx}>
@@ -384,7 +470,7 @@ export default function Dashboard({
               </div>
             </div>
           </div>
-          
+
           <div className="dashboard-activity-col">
             <div className="dashboard-card glass" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "12px", minHeight: "260px" }}>
               <h3 style={{ fontSize: "0.95rem", fontWeight: "700", color: "#fff", margin: 0 }}>Recent User Audits (Logins)</h3>
