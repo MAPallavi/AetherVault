@@ -14,6 +14,9 @@ const securityHeaders = (req, res, next) => {
 const ipStore = {};
 const rateLimiter = (limit = 100, windowMs = 15 * 60 * 1000) => {
   return (req, res, next) => {
+    // If in development mode, relax the rate limiter limit
+    const activeLimit = process.env.NODE_ENV === 'production' ? limit : 10000;
+
     const ip = req.ip || req.connection.remoteAddress;
     const now = Date.now();
 
@@ -24,7 +27,7 @@ const rateLimiter = (limit = 100, windowMs = 15 * 60 * 1000) => {
     // Filter out requests older than the window
     ipStore[ip] = ipStore[ip].filter(timestamp => now - timestamp < windowMs);
 
-    if (ipStore[ip].length >= limit) {
+    if (ipStore[ip].length >= activeLimit) {
       return res.status(429).json({
         message: "Too many requests from this IP, please try again later."
       });
