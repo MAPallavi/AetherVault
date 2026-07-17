@@ -76,6 +76,16 @@ const fileSchema = new mongoose.Schema({
     username: { type: String, required: true },
     comment: { type: String, required: true },
     createdAt: { type: Date, default: Date.now },
+    replies: [{
+      username: { type: String, required: true },
+      comment: { type: String, required: true },
+      createdAt: { type: Date, default: Date.now }
+    }],
+    mentions: [String],
+    isResolved: { type: Boolean, default: false },
+    isPinned: { type: Boolean, default: false },
+    isEdited: { type: Boolean, default: false },
+    updatedAt: { type: Date }
   }],
   sharedLinks: [{
     passcode: { type: String, default: "" },
@@ -87,8 +97,60 @@ const fileSchema = new mongoose.Schema({
     size: { type: Number, required: true },
     physicalPath: { type: String, required: true },
     iv: { type: String, required: true },
+    notes: { type: String, default: "" },
+    author: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     createdAt: { type: Date, default: Date.now },
   }],
+  storageProvider: {
+    type: String,
+    default: 'local',
+  },
+  storageKey: {
+    type: String,
+  },
+  checksum: {
+    type: String,
+  },
+  etag: {
+    type: String,
+  },
+  downloadCount: {
+    type: Number,
+    default: 0,
+  },
+  lastDownloaded: {
+    type: Date,
+  },
+  virusScanStatus: {
+    type: String,
+    enum: ['Clean', 'Infected', 'Skipped', 'Scanning', 'Safe', 'Suspicious', 'Rejected'],
+    default: 'Clean',
+  },
+  ocrText: {
+    type: String,
+    default: "",
+  },
+  aiClassification: {
+    type: String,
+    default: "",
+  },
+  aiSummary: {
+    type: String,
+    default: "",
+  },
+  embeddings: {
+    type: [Number],
+    default: [],
+  },
+  lockedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
+  },
+  lockTimestamp: {
+    type: Date,
+    default: null,
+  },
 }, {
   timestamps: true,
 });

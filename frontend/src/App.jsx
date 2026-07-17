@@ -1,5 +1,6 @@
 import React, { useState, useEffect, Suspense } from "react";
 import { api } from "./utils/api";
+import { useAuth } from "./context/AuthContext";
 
 const DashboardPage = React.lazy(() => import("./pages/Dashboard"));
 const FilesPage = React.lazy(() => import("./pages/FilesPage"));
@@ -16,9 +17,8 @@ import CommandPalette from "./components/CommandPalette";
 import "./styles/app.css";
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [username, setUsername] = useState("");
-  const [loading, setLoading] = useState(true);
+  const { isAuthenticated, user, loading, logout } = useAuth();
+  const username = user?.username || "";
   const [showIdleCountdown, setShowIdleCountdown] = useState(false);
   const [idleTimeRemaining, setIdleTimeRemaining] = useState(60);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
@@ -48,9 +48,7 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    checkSession();
-  }, []);
+
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -177,37 +175,12 @@ export default function App() {
     };
   }, [isAuthenticated, showIdleCountdown]);
 
-  const checkSession = async () => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const data = await api.getMe();
-      setUsername(data.username);
-      setIsAuthenticated(true);
-    } catch (err) {
-      console.error("Session validation failed:", err.message);
-      api.logout();
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleAuthSuccess = (name) => {
-    setUsername(name);
-    setIsAuthenticated(true);
     setCurrentTab("dashboard");
-    toast.success(`Logged in as ${name}`);
   };
 
   const handleLogout = () => {
-    api.logout();
-    setIsAuthenticated(false);
-    setUsername("");
-    toast.success("Logged out successfully");
+    logout();
   };
 
   const triggerStatsRefresh = () => {

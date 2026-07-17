@@ -492,5 +492,58 @@ export const api = {
     const res = await fetch('/api/admin/status', { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Failed to fetch platform status');
     return res.json();
+  },
+
+  generateAISummary: async (id) => {
+    const res = await fetch(`/api/files/${id}/ai-summary`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to generate AI Summary');
+    return data;
+  },
+
+  semanticAISearch: async (query) => {
+    const res = await fetch(`/api/files/ai-search?q=${encodeURIComponent(query)}`, {
+      headers: getAuthHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to perform AI search');
+    return data;
+  },
+
+  lockFile: async (id) => {
+    const res = await fetch(`/api/files/${id}/lock`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to lock file');
+    return data;
+  },
+
+  unlockFile: async (id) => {
+    const res = await fetch(`/api/files/${id}/unlock`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to unlock file');
+    return data;
+  },
+
+  resolveSyncConflict: async (id, resolution) => {
+    const res = await fetch(`/api/files/${id}/sync-resolve`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({ resolution }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to resolve conflict');
+    return data;
   }
 };

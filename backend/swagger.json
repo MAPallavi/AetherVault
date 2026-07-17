@@ -1,0 +1,63 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "AetherVault Collaboration & Storage API",
+    "version": "6.0.0",
+    "description": "API specifications for AetherVault multi-user production cloud storage platform"
+  },
+  "servers": [
+    {
+      "url": "/api"
+    }
+  ],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "summary": "Authenticate user credentials",
+        "responses": {
+          "200": { "description": "Successfully authenticated" }
+        }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "summary": "Create new user account",
+        "responses": {
+          "201": { "description": "Successfully registered" }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "summary": "Retrieve currently authenticated user details",
+        "responses": {
+          "200": { "description": "User profile details returned" }
+        }
+      }
+    },
+    "/files": {
+      "get": {
+        "summary": "List files and folders owned by or shared with the user",
+        "responses": {
+          "200": { "description": "Files list returned" }
+        }
+      }
+    },
+    "/files/upload": {
+      "post": {
+        "summary": "Upload and encrypt new files",
+        "responses": {
+          "201": { "description": "Files successfully uploaded" }
+        }
+      }
+    },
+    "/collaboration/workspaces": {
+      "get": {
+        "summary": "List workspaces the user owns or belongs to",
+        "responses": {
+          "200": { "description": "Workspaces returned" }
+        }
+      }
+    }
+  }
+}

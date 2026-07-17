@@ -22,6 +22,8 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/files', require('./routes/files'));
 app.use('/api/logs', require('./routes/logs'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/collaboration', require('./routes/collaboration'));
+app.use('/api/health', require('./routes/health'));
 
 // Serve React build only in production
 if (process.env.NODE_ENV === 'production') {

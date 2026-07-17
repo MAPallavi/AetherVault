@@ -320,6 +320,10 @@ router.get('/health', protect, async (req, res) => {
     await User.countDocuments({}); // quick query to test response
     const dbResponseTime = Date.now() - start;
 
+    const storageService = require('../utils/storageProvider');
+    const storageStatus = storageService.storage.getStatus();
+    const storageHealth = await storageService.storage.checkHealth();
+
     res.json({
       status: 'HEALTHY',
       mongoStatus,
@@ -335,6 +339,14 @@ router.get('/health', protect, async (req, res) => {
         nodeVersion: process.version,
         platform: process.platform,
         arch: process.arch,
+      },
+      storageStatus: {
+        provider: storageStatus.provider,
+        storagePath: storageStatus.storagePath,
+        cloudStatus: storageStatus.cloudStatus,
+        configurationStatus: storageStatus.configurationStatus,
+        health: storageHealth.status,
+        healthDetails: storageHealth.details
       }
     });
   } catch (error) {
@@ -409,6 +421,108 @@ router.post('/reset-password', async (req, res) => {
     res.json({ message: 'Password reset successfully. You can now log in.' });
   } catch (error) {
     res.status(400).json({ message: 'Invalid or expired password reset token' });
+  }
+});
+
+// @desc    Delete user account and all owned assets
+// @route   DELETE /api/auth/profile
+// @access  Private
+const File = require('../models/File');
+const fs = require('fs/promises');
+const path = require('path');
+router.delete('/profile', protect, async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    // 1. Delete physical files from disk
+    const userFiles = await File.find({ owner: userId, isFolder: false });
+    for (const file of userFiles) {
+      if (file.physicalPath) {
+        try {
+          await fs.unlink(file.physicalPath);
+        } catch (err) {
+          // ignore
+        }
+      }
+      if (file.versions) {
+        for (const ver of file.versions) {
+          try {
+            await fs.unlink(ver.physicalPath);
+          } catch (err) {
+            // ignore
+          }
+        }
+      }
+    }
+
+    // 2. Delete all DB files
+    await File.deleteMany({ owner: userId });
+
+    // 3. Delete user logs
+    await ActivityLog.deleteMany({ user: userId });
+
+    // 4. Delete user account
+    await User.findByIdAndDelete(userId);
+
+    // 5. Delete physical uploads folder
+    const baseDir = path.resolve(process.env.UPLOAD_DIR || './uploads');
+    const userUploadDir = path.join(baseDir, userId.toString());
+    try {
+      await fs.rm(userUploadDir, { recursive: true, force: true });
+    } catch (err) {
+      // ignore
+    }
+
+    res.json({ message: 'Account and all data successfully deleted' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// @desc    Download all user data (export as ZIP)
+// @route   GET /api/auth/download-data
+// @access  Private
+const archiver = require('archiver');
+router.get('/download-data', protect, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const allFiles = await File.find({ owner: userId, isDeleted: false });
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${req.user.username}_vault_export.zip"`);
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.pipe(res);
+
+    const cryptoUtils = require('../utils/crypto');
+
+    // Recursively append active files structure
+    const appendUserFiles = async (folderId, relativePath) => {
+      const items = allFiles.filter(f => {
+        if (!folderId) return f.parentFolder === null;
+        return f.parentFolder && f.parentFolder.toString() === folderId.toString();
+      });
+
+      for (const item of items) {
+        const itemPath = path.join(relativePath, item.name);
+        if (item.isFolder) {
+          await appendUserFiles(item._id, itemPath);
+        } else {
+          try {
+            const encryptedData = await fs.readFile(item.physicalPath);
+            const decryptedData = cryptoUtils.decrypt(encryptedData, Buffer.from(item.iv, 'hex'));
+            archive.append(decryptedData, { name: itemPath });
+          } catch (err) {
+            console.error(`Error archiving file ${item.name}:`, err.message);
+          }
+        }
+      }
+    };
+
+    await appendUserFiles(null, '');
+    archive.finalize();
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 });
 

@@ -3,6 +3,8 @@ import MainLayout from "../layout/MainLayout";
 import { api } from "../utils/api";
 import SettingsSkeleton from "../components/settings/SettingsSkeleton";
 import { toast } from "react-hot-toast";
+import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 import {
   User,
   Lock,
@@ -22,9 +24,11 @@ import {
   ToggleRight,
   Settings,
   Heart,
+  Shield,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import AdminHealth from "../components/settings/AdminHealth";
+import AdminPanel from "../components/settings/AdminPanel";
 
 export default function SettingsPage({
   currentTab,
@@ -36,20 +40,29 @@ export default function SettingsPage({
   toggleSidebar,
   onPreviewSelect,
 }) {
+  const { user, updateProfile, deleteAccount, downloadData } = useAuth();
+  const { theme: activeTheme, setTheme } = useTheme();
+
   const [loading, setLoading] = useState(true);
   const [activeSubTab, setActiveSubTab] = useState("profile");
 
   // SECTION 1: Profile specs states
-  const [profileUsername, setProfileUsername] = useState(username || "Admin");
-  const [profileDisplayName, setProfileDisplayName] = useState(() => {
-    return localStorage.getItem("aethervault_display_name") || "Vault Administrator";
-  });
-  const [profileEmail, setProfileEmail] = useState(() => {
-    return localStorage.getItem("aethervault_email") || "admin@aethervault.local";
-  });
+  const [profileUsername, setProfileUsername] = useState("");
+  const [profileDisplayName, setProfileDisplayName] = useState("");
+  const [profileEmail, setProfileEmail] = useState("");
+  const [profileAvatar, setProfileAvatar] = useState("");
+
+  useEffect(() => {
+    if (user) {
+      setProfileUsername(user.username || "");
+      setProfileDisplayName(user.fullName || user.username || "");
+      setProfileEmail(user.email || "");
+      setProfileAvatar(user.avatar || "");
+    }
+  }, [user]);
 
   // SECTION 2: Appearance & Accents
-  const [theme, setTheme] = useState(() => {
+  const [theme, setThemeState] = useState(() => {
     return localStorage.getItem("aethervault_theme") || "dark";
   });
   const [accent, setAccent] = useState(() => {
@@ -228,7 +241,7 @@ export default function SettingsPage({
   };
 
   // Section 1: Profile saving
-  const handleSaveProfile = (e) => {
+  const handleSaveProfile = async (e) => {
     e.preventDefault();
     setSuccessMsg("");
     setErrorMsg("");
@@ -250,30 +263,34 @@ export default function SettingsPage({
     }
 
     setUpdating(true);
-    setTimeout(async () => {
-      localStorage.setItem("aethervault_display_name", trimmedName);
-      localStorage.setItem("aethervault_email", trimmedEmail);
-      setProfileDisplayName(trimmedName);
-      setProfileEmail(trimmedEmail);
+    try {
+      await updateProfile({
+        fullName: trimmedName,
+        email: trimmedEmail,
+        avatar: profileAvatar.trim()
+      });
       setSuccessMsg("Profile information saved successfully.");
       toast.success("Profile information saved successfully.");
+    } catch (err) {
+      setErrorMsg(err.message || "Failed to update profile settings.");
+    } finally {
       setUpdating(false);
-      try {
-        await api.logSettingsChange(`Profile details updated (Display Name: "${trimmedName}", Email: "${trimmedEmail}")`);
-      } catch (err) {
-        console.error(err);
-      }
-    }, 900);
+    }
   };
 
   const handleCancelProfile = () => {
-    setProfileDisplayName(localStorage.getItem("aethervault_display_name") || "Vault Administrator");
-    setProfileEmail(localStorage.getItem("aethervault_email") || "admin@aethervault.local");
+    if (user) {
+      setProfileDisplayName(user.fullName || user.username || "");
+      setProfileEmail(user.email || "");
+      setProfileAvatar(user.avatar || "");
+    }
     setSuccessMsg("");
+    setErrorMsg("");
   };
 
   // Section 2: Themes Toggling
   const handleThemeChange = async (newTheme) => {
+    setThemeState(newTheme);
     setTheme(newTheme);
     localStorage.setItem("aethervault_theme", newTheme);
     try {
@@ -491,11 +508,14 @@ export default function SettingsPage({
   const subTabs = [
     { id: "profile", label: "My Profile", icon: User },
     { id: "appearance", label: "Appearance", icon: Palette },
-    { id: "security", label: "Security & Devices", icon: Lock },
+    { id: "workspaces", label: "My Workspaces", icon: FolderOpen },
+    { id: "invitations", label: "Invitations", icon: ArrowRight },
     { id: "notifications", label: "Notifications", icon: Bell },
+    { id: "sharing-defaults", label: "Sharing Defaults", icon: Info },
     { id: "storage", label: "Storage details", icon: HardDrive },
     { id: "preferences", label: "Preferences", icon: Settings },
     { id: "health", label: "System Health", icon: Heart },
+    ...(user?.role === 'Admin' ? [{ id: "admin-panel", label: "Admin Panel", icon: Shield }] : []),
     { id: "about", label: "About AetherVault", icon: Info },
   ];
 
@@ -587,8 +607,12 @@ export default function SettingsPage({
 
                   {/* Premium Profile Card */}
                   <div className="profile-premium-card">
-                    <div className="profile-avatar-big">
-                      {profileUsername.charAt(0).toUpperCase()}
+                    <div className="profile-avatar-big" style={{ overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {profileAvatar ? (
+                        <img src={profileAvatar} alt="Avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        profileUsername ? profileUsername.charAt(0).toUpperCase() : ""
+                      )}
                     </div>
                     <div className="profile-text-info">
                       <h4 className="profile-text-name">{profileDisplayName}</h4>
@@ -642,6 +666,17 @@ export default function SettingsPage({
                       />
                     </div>
 
+                    <div className="settings-form-group">
+                      <label className="settings-label">Avatar URL</label>
+                      <input
+                        type="text"
+                        className="input-field"
+                        placeholder="https://example.com/avatar.jpg"
+                        value={profileAvatar}
+                        onChange={(e) => setProfileAvatar(e.target.value)}
+                      />
+                    </div>
+
                     <div className="btn-group">
                       <button type="submit" className="btn-purple" disabled={updating}>
                         {updating ? "Saving..." : "Save Details"}
@@ -651,6 +686,31 @@ export default function SettingsPage({
                       </button>
                     </div>
                   </form>
+
+                  <div style={{ marginTop: "30px", paddingTop: "20px", borderTop: "1px solid rgba(255, 255, 255, 0.08)" }}>
+                    <h4 style={{ color: "#fff", fontSize: "0.95rem", margin: "0 0 10px 0" }}>Account Management</h4>
+                    <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={downloadData}
+                        className="btn btn-primary"
+                        style={{ background: "var(--success)" }}
+                      >
+                        📥 Download My Data
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const confirm = window.confirm("Are you absolutely sure you want to delete your account? All your files, folders, favorites, tags, logs, and comments will be permanently erased. This cannot be undone.");
+                          if (confirm) deleteAccount();
+                        }}
+                        className="btn"
+                        style={{ background: "var(--danger)", color: "#fff" }}
+                      >
+                        ❌ Delete Account
+                      </button>
+                    </div>
+                  </div>
                 </motion.div>
               )}
 
@@ -1400,6 +1460,79 @@ export default function SettingsPage({
                 </motion.div>
               )}
 
+              {/* TAB: WORKSPACES */}
+              {activeSubTab === "workspaces" && (
+                <motion.div
+                  key="workspaces"
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -15 }}
+                  transition={{ duration: 0.2 }}
+                  className="settings-section-container"
+                >
+                  <div>
+                    <h3 className="dashboard-panel-title">My Workspaces</h3>
+                    <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Manage collaboration hubs (Personal, Team, Department).</p>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "15px" }}>
+                    <div className="glass-panel" style={{ padding: "15px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <strong style={{ color: "#fff" }}>Personal Vault Workspace</strong>
+                        <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "4px" }}>Type: Personal • Owner: Me</div>
+                      </div>
+                      <span style={{ fontSize: "0.75rem", padding: "4px 8px", background: "rgba(255,255,255,0.06)", borderRadius: "4px" }}>Active</span>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* TAB: INVITATIONS */}
+              {activeSubTab === "invitations" && (
+                <motion.div
+                  key="invitations"
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -15 }}
+                  transition={{ duration: 0.2 }}
+                  className="settings-section-container"
+                >
+                  <div>
+                    <h3 className="dashboard-panel-title">Workspace Invitations</h3>
+                    <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Review and manage pending department and team workspace invites.</p>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "15px" }}>
+                    <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>No pending workspace invitations found.</p>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* TAB: SHARING DEFAULTS */}
+              {activeSubTab === "sharing-defaults" && (
+                <motion.div
+                  key="sharing-defaults"
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -15 }}
+                  transition={{ duration: 0.2 }}
+                  className="settings-section-container"
+                >
+                  <div>
+                    <h3 className="dashboard-panel-title">Sharing Defaults</h3>
+                    <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Configure default permission levels for shared folders and links.</p>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "15px", marginTop: "15px" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Default Access Permission</label>
+                      <select className="input-field" defaultValue="Viewer" style={{ background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", padding: "8px", color: "#fff" }}>
+                        <option value="Viewer">Viewer (Read Only)</option>
+                        <option value="Editor">Editor (Read/Write)</option>
+                        <option value="Commenter">Commenter</option>
+                      </select>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
               {/* TAB 9: SYSTEM HEALTH */}
               {activeSubTab === "health" && (
                 <motion.div
@@ -1411,6 +1544,20 @@ export default function SettingsPage({
                   className="settings-section-container"
                 >
                   <AdminHealth />
+                </motion.div>
+              )}
+
+              {/* TAB: ADMIN PANEL */}
+              {activeSubTab === "admin-panel" && (
+                <motion.div
+                  key="admin-panel"
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -15 }}
+                  transition={{ duration: 0.2 }}
+                  className="settings-section-container"
+                >
+                  <AdminPanel />
                 </motion.div>
               )}
             </AnimatePresence>

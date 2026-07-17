@@ -156,6 +156,42 @@ export default function AdminHealth() {
                 </div>
               </div>
             </div>
+
+            {/* Storage Provider Specifications */}
+            {health.storageStatus && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                <h4 style={{ margin: 0, fontSize: "0.85rem", color: "#fff", display: "flex", alignItems: "center", gap: "6px" }}>
+                  <Database size={14} color="var(--primary)" />
+                  <span>Storage Engine Specs</span>
+                </h4>
+                
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span>Active Provider:</span>
+                    <strong style={{ color: "#fff", textTransform: "uppercase" }}>{health.storageStatus.provider}</strong>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span>Storage Path:</span>
+                    <strong style={{ color: "#fff", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "160px", whiteSpace: "nowrap" }} title={health.storageStatus.storagePath}>{health.storageStatus.storagePath}</strong>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span>Cloud Sync Status:</span>
+                    <strong style={{ color: "#fff" }}>{health.storageStatus.cloudStatus}</strong>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span>Provider Health:</span>
+                    <strong style={{ color: health.storageStatus.health === "healthy" ? "var(--success)" : "var(--danger)" }}>
+                      {health.storageStatus.health === "healthy" ? "HEALTHY" : "UNHEALTHY"}
+                    </strong>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span>Config Status:</span>
+                    <strong style={{ color: "#fff" }}>{health.storageStatus.configurationStatus}</strong>
+                  </div>
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       )}

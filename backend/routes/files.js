@@ -13,6 +13,11 @@ const ActivityLog = require('../models/ActivityLog');
 const cryptoUtils = require('../utils/crypto');
 const { protect } = require('../middleware/auth');
 const { storage } = require('../utils/storageProvider');
+const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
+const crypto = require('crypto');
+const jobService = require('../utils/jobService');
+const User = require('../models/User');
 
 // Multer in-memory storage configuration
 const upload = multer({
@@ -366,21 +371,29 @@ router.get('/download/:id', protect, async (req, res) => {
       archive.finalize();
     } else {
       // Decrypt and stream single file
-      const encryptedData = await storage.read(file.physicalPath);
-      const decryptedData = cryptoUtils.decrypt(encryptedData, Buffer.from(file.iv, 'hex'));
-
-      res.setHeader('Content-Type', file.mimeType);
+      res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
-      res.setHeader('Content-Length', decryptedData.length);
+
+      const readStream = storage.createReadStream(file.physicalPath);
+      const decipher = cryptoUtils.decryptStream(Buffer.from(file.iv, 'hex'));
+
+      // Increment stats
+      file.downloadCount = (file.downloadCount || 0) + 1;
+      file.lastDownloaded = new Date();
+      await file.save();
 
       await ActivityLog.create({
         user: req.user._id,
         action: 'DOWNLOAD',
-        details: `Downloaded file: ${file.name}`,
+        details: `Downloaded file: ${file.name} (Provider: ${file.storageProvider || 'local'})`,
         ipAddress: req.ip || req.connection.remoteAddress,
       });
 
-      res.send(decryptedData);
+      await pipeline(
+        readStream,
+        decipher,
+        res
+      );
     }
   } catch (error) {
     console.error('Download error:', error);
@@ -1181,12 +1194,29 @@ router.get('/shared/:code/download', async (req, res) => {
       await addFolderToZip(file._id, file.owner, zip, file.name, uploadDir);
       zip.finalize();
     } else {
-      const encryptedData = await storage.read(file.physicalPath);
-      const decryptedData = cryptoUtils.decrypt(encryptedData, Buffer.from(file.iv, 'hex'));
-      const mimeType = file.mimeType || 'application/octet-stream';
-      res.setHeader('Content-Type', mimeType);
+      res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
-      res.send(decryptedData);
+
+      const readStream = storage.createReadStream(file.physicalPath);
+      const decipher = cryptoUtils.decryptStream(Buffer.from(file.iv, 'hex'));
+
+      // Increment stats
+      file.downloadCount = (file.downloadCount || 0) + 1;
+      file.lastDownloaded = new Date();
+      await file.save();
+
+      await ActivityLog.create({
+        user: file.owner,
+        action: 'DOWNLOAD',
+        details: `Public shared download: ${file.name} (Provider: ${file.storageProvider || 'local'})`,
+        ipAddress: req.ip || req.connection.remoteAddress,
+      });
+
+      await pipeline(
+        readStream,
+        decipher,
+        res
+      );
     }
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -1210,12 +1240,206 @@ router.get('/download/:id/version/:index', protect, async (req, res) => {
 
     const version = file.versions[index];
 
-    const encryptedData = await storage.read(version.physicalPath);
-    const decryptedData = cryptoUtils.decrypt(encryptedData, Buffer.from(version.iv, 'hex'));
-
     res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
-    res.send(decryptedData);
+
+    const readStream = storage.createReadStream(version.physicalPath);
+    const decipher = cryptoUtils.decryptStream(Buffer.from(version.iv, 'hex'));
+
+    await pipeline(
+      readStream,
+      decipher,
+      res
+    );
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// @desc    Restore historical version of a file
+// @route   POST /api/files/:id/version/:index/restore
+// @access  Private
+router.post('/:id/version/:index/restore', protect, async (req, res) => {
+  try {
+    const file = await File.findOne({ _id: req.params.id, owner: req.user._id, isDeleted: false });
+    if (!file || file.isFolder) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+
+    const index = parseInt(req.params.index);
+    if (isNaN(index) || index < 0 || index >= file.versions.length) {
+      return res.status(404).json({ message: 'Version not found' });
+    }
+
+    const version = file.versions[index];
+
+    const currentPath = file.physicalPath;
+    const currentIv = file.iv;
+    const currentSize = file.size;
+
+    file.physicalPath = version.physicalPath;
+    file.iv = version.iv;
+    file.size = version.size;
+
+    file.versions[index] = {
+      physicalPath: currentPath,
+      iv: currentIv,
+      size: currentSize,
+      notes: 'Replaced during restore',
+      author: req.user._id,
+      createdAt: new Date()
+    };
+
+    await file.save();
+
+    await ActivityLog.create({
+      user: req.user._id,
+      action: 'RENAME',
+      details: `Restored version ${index} of file: ${file.name}`,
+      ipAddress: req.ip || req.connection.remoteAddress,
+    });
+
+    res.json({ message: 'Version restored successfully', file });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// @desc    Delete historical version of a file
+// @route   DELETE /api/files/:id/version/:index
+// @access  Private
+router.delete('/:id/version/:index', protect, async (req, res) => {
+  try {
+    const file = await File.findOne({ _id: req.params.id, owner: req.user._id, isDeleted: false });
+    if (!file || file.isFolder) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+
+    const index = parseInt(req.params.index);
+    if (isNaN(index) || index < 0 || index >= file.versions.length) {
+      return res.status(404).json({ message: 'Version not found' });
+    }
+
+    const version = file.versions[index];
+    try {
+      await storage.delete(version.physicalPath);
+    } catch (delErr) {
+      console.warn('Physical delete failed during version purge:', delErr.message);
+    }
+
+    file.versions.splice(index, 1);
+    await file.save();
+
+    res.json({ message: 'Version purged successfully', file });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// @desc    Generate AI Summary for a file
+// @route   POST /api/files/:id/ai-summary
+// @access  Private
+router.post('/:id/ai-summary', protect, async (req, res) => {
+  try {
+    const file = await File.findOne({ _id: req.params.id, owner: req.user._id, isDeleted: false });
+    if (!file || file.isFolder) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+
+    const aiService = require('../services/aiService');
+    const summary = await aiService.generateSummary(file._id);
+
+    file.aiSummary = summary;
+    await file.save();
+
+    await ActivityLog.create({
+      user: req.user._id,
+      action: 'RENAME',
+      details: `Generated AI Summary for file: ${file.name}`,
+      ipAddress: req.ip || req.connection.remoteAddress,
+    });
+
+    res.json({ message: 'AI Summary generated successfully', summary });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// @desc    Perform semantic AI search on files
+// @route   GET /api/files/ai-search
+// @access  Private
+router.get('/ai-search', protect, async (req, res) => {
+  const { q } = req.query;
+  if (!q) {
+    return res.status(400).json({ message: 'Query parameter is required' });
+  }
+
+  try {
+    const files = await File.find({
+      owner: req.user._id,
+      isDeleted: false,
+      name: { $regex: q, $options: 'i' }
+    });
+
+    res.json(files);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// @desc    Lock a file to prevent concurrency edits
+// @route   POST /api/files/:id/lock
+// @access  Private
+router.post('/:id/lock', protect, async (req, res) => {
+  try {
+    const file = await File.findOne({ _id: req.params.id, owner: req.user._id, isDeleted: false });
+    if (!file || file.isFolder) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+
+    if (file.lockedBy && file.lockedBy.toString() !== req.user._id.toString()) {
+      return res.status(409).json({ message: 'File is already locked by another user' });
+    }
+
+    file.lockedBy = req.user._id;
+    file.lockTimestamp = new Date();
+    await file.save();
+
+    res.json({ message: 'File locked successfully', file });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// @desc    Unlock a file
+// @route   POST /api/files/:id/unlock
+// @access  Private
+router.post('/:id/unlock', protect, async (req, res) => {
+  try {
+    const file = await File.findOne({ _id: req.params.id, owner: req.user._id, isDeleted: false });
+    if (!file || file.isFolder) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+
+    file.lockedBy = null;
+    file.lockTimestamp = null;
+    await file.save();
+
+    res.json({ message: 'File unlocked successfully', file });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// @desc    Resolve sync conflicts
+// @route   POST /api/files/:id/sync-resolve
+// @access  Private
+router.post('/:id/sync-resolve', protect, async (req, res) => {
+  const { resolution } = req.body;
+  try {
+    const syncService = require('../services/syncService');
+    const result = await syncService.resolveConflict(req.params.id, resolution, req.user._id);
+    res.json({ message: 'Conflict resolved', result });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

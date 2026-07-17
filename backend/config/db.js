@@ -2,11 +2,26 @@ const mongoose = require('mongoose');
 
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-    console.log(`MongoDB Connected: ${conn.connection.host}`);
+    let retries = 5;
+    let conn;
+    while (retries > 0) {
+      try {
+        conn = await mongoose.connect(process.env.MONGODB_URI, {
+          useNewUrlParser: true,
+          useUnifiedTopology: true,
+          autoIndex: true,
+        });
+        console.log(`MongoDB Connected: ${conn.connection.host}`);
+        break;
+      } catch (error) {
+        retries -= 1;
+        console.error(`MongoDB Connection Error: ${error.message}. Retries remaining: ${retries}`);
+        if (retries === 0) {
+          process.exit(1);
+        }
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+    }
 
     // Migrate/re-align user storage values on startup
     try {
@@ -15,8 +30,8 @@ const connectDB = async () => {
       const users = await User.find({});
       for (const u of users) {
         let changed = false;
-        if (u.storageLimit === undefined || u.storageLimit === null) {
-          u.storageLimit = 10 * 1024 * 1024 * 1024;
+        if (u.storageLimit === undefined || u.storageLimit === null || u.storageLimit === 10 * 1024 * 1024 * 1024) {
+          u.storageLimit = 5 * 1024 * 1024 * 1024;
           changed = true;
         }
         
@@ -43,9 +58,8 @@ const connectDB = async () => {
     } catch (migErr) {
       console.error(`Migration warning: ${migErr.message}`);
     }
-  } catch (error) {
-    console.error(`MongoDB Connection Error: ${error.message}`);
-    process.exit(1);
+  } catch (outerErr) {
+    console.error(`Database startup logic error: ${outerErr.message}`);
   }
 };
 

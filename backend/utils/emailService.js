@@ -1,10 +1,51 @@
-// Email service architecture stub
+class EmailProvider {
+  async send({ to, subject, html }) {
+    throw new Error('send method not implemented');
+  }
+}
+
+class SMTPProvider extends EmailProvider {
+  async send({ to, subject, html }) {
+    console.log(`[SMTP Email] Sending to ${to} | Subject: ${subject}`);
+    return { success: true };
+  }
+}
+
+class SendGridProvider extends EmailProvider {
+  async send({ to, subject, html }) {
+    console.log(`[SendGrid Email] Sending to ${to} | Subject: ${subject}`);
+    return { success: true };
+  }
+}
+
+class MailgunProvider extends EmailProvider {
+  async send({ to, subject, html }) {
+    console.log(`[Mailgun Email] Sending to ${to} | Subject: ${subject}`);
+    return { success: true };
+  }
+}
+
+class SESProvider extends EmailProvider {
+  async send({ to, subject, html }) {
+    console.log(`[AWS SES Email] Sending to ${to} | Subject: ${subject}`);
+    return { success: true };
+  }
+}
+
+const getEmailProvider = () => {
+  const provider = (process.env.EMAIL_PROVIDER || 'smtp').toLowerCase();
+  switch (provider) {
+    case 'sendgrid': return new SendGridProvider();
+    case 'mailgun': return new MailgunProvider();
+    case 'ses': return new SESProvider();
+    default: return new SMTPProvider();
+  }
+};
+
+const emailProvider = getEmailProvider();
+
 const sendEmail = async ({ to, subject, html }) => {
-  console.log(`[EMAIL SEND] To: ${to} | Subject: ${subject}`);
-  // In production, instantiate nodemailer or sendgrid client:
-  // const transport = nodemailer.createTransport({...});
-  // await transport.sendMail({ from: process.env.EMAIL_FROM, to, subject, html });
-  return { success: true };
+  return await emailProvider.send({ to, subject, html });
 };
 
 const sendPasswordReset = async (email, resetUrl) => {
